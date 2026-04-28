@@ -1,7 +1,7 @@
 # fedora-claude-devbox Makefile
 # Usage: make <target> [VM_HOST=192.168.x.x] [VM_USER=kevbot] [TAG=latest]
 
-REGISTRY       ?= ghcr.io/kevbot
+REGISTRY       ?= ghcr.io/distantgeek
 IMAGE_NAME     ?= fedora-claude-devbox
 TAG            ?= latest
 FULL_IMAGE     ?= $(REGISTRY)/$(IMAGE_NAME):$(TAG)
@@ -40,7 +40,7 @@ help:
 	@echo "  VM_USER         SSH user (default: kevbot)"
 	@echo "  SSH_KEY         SSH private key (default: ~/.ssh/id_ed25519)"
 	@echo "  TAG             Image tag (default: latest)"
-	@echo "  REGISTRY        Image registry (default: ghcr.io/kevbot)"
+	@echo "  REGISTRY        Image registry (default: ghcr.io/distantgeek)"
 	@echo "  K8S_BACKEND     k3s or kind (default: k3s)"
 	@echo ""
 

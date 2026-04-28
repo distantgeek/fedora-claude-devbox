@@ -13,8 +13,8 @@ environment built on Fedora bootc, Podman, and Quadlets. Forked and rewritten fr
 `intelligentcode-ai/claude-code-vm` for RHEL-family systems with hook-based security
 enforcement replacing unreliable `settings.json` deny rules.
 
-**Owner:** kevbot — `cooperke@distantgeek.net`
-**Primary registry:** GHCR (`ghcr.io/kevbot/fedora-claude-devbox`)
+**Owner:** distantgeek — `cooperke@distantgeek.net`
+**Primary registry:** GHCR (`ghcr.io/distantgeek/fedora-claude-devbox`)
 **Target runtime:** Proxmox VM, homelab (`distantgeek.net`)
 **License:** Apache 2.0
 
@@ -248,7 +248,7 @@ When a `[REDACTED:*]` tag appears in output:
 ### Git Safety
 
 - Never force push to `main` or `master`
-- Never push to a remote not matching `github.com/kevbot*`
+- Never push to a remote not matching `github.com/distantgeek*`
 - Never commit files matching sensitive path patterns above
 - Always run `git diff --staged` before committing; flag anything unexpected
 - Verify `.gitignore` covers `*.key`, `*.pem`, `.env*`, `credentials`, `token`
