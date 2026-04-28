@@ -16,6 +16,7 @@ RUN dnf install -y \
     gh \
     curl \
     wget \
+    unzip \
     tmux \
     zsh \
     vim \
@@ -68,28 +69,39 @@ ENV PATH="/usr/local/share/fnm:$PATH"
 RUN fnm install --lts && fnm default lts-latest
 
 # ---------------------------------------------------------------------------
-# uv (Python package manager)
+# uv (Python package manager) — direct binary install, system-wide
+# Avoids installer shell script home-dir assumptions in bootc build context.
 # ---------------------------------------------------------------------------
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.cargo/bin:$PATH"
+RUN curl -fsSL "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-unknown-linux-gnu.tar.gz" \
+    | tar -xz -C /tmp \
+    && mv /tmp/uv-x86_64-unknown-linux-gnu/uv /usr/local/bin/uv \
+    && mv /tmp/uv-x86_64-unknown-linux-gnu/uvx /usr/local/bin/uvx \
+    && rm -rf /tmp/uv-x86_64-unknown-linux-gnu
 
 # ---------------------------------------------------------------------------
-# rustup (no default toolchain — projects pin via rust-toolchain.toml)
+# rustup — system-wide binary via direct download; per-user toolchains in ~/.cargo
+# rustup-init IS rustup (same binary, detects invocation name).
 # ---------------------------------------------------------------------------
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-    sh -s -- -y --default-toolchain none --no-modify-path
-ENV PATH="/root/.cargo/bin:$PATH"
+RUN curl -fsSL "https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init" \
+    -o /usr/local/bin/rustup \
+    && chmod +x /usr/local/bin/rustup
 
 # ---------------------------------------------------------------------------
-# mise (unified version manager)
+# mise (unified version manager) — direct binary install, system-wide
 # ---------------------------------------------------------------------------
-RUN curl https://mise.run | sh
-ENV PATH="/root/.local/bin:$PATH"
+RUN MISE_VERSION=$(curl -fsSL https://api.github.com/repos/jdx/mise/releases/latest \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])") \
+    && curl -fsSL "https://github.com/jdx/mise/releases/download/${MISE_VERSION}/mise-${MISE_VERSION}-linux-x64" \
+    -o /usr/local/bin/mise \
+    && chmod +x /usr/local/bin/mise
 
 # ---------------------------------------------------------------------------
 # Claude Code CLI
+# HOME=/tmp avoids npm writing to /root, which is a symlink in fedora-bootc.
+# Global install lands in the fnm node prefix under /usr/local/share/fnm.
 # ---------------------------------------------------------------------------
-RUN /usr/local/share/fnm/fnm exec --using=lts-latest npm install -g @anthropic-ai/claude-code
+RUN HOME=/tmp /usr/local/share/fnm/fnm exec --using=lts-latest \
+    npm install -g @anthropic-ai/claude-code
 
 # ---------------------------------------------------------------------------
 # Hook suite — deployed to /etc/claude/hooks/
@@ -136,12 +148,12 @@ export PATH="$FNM_DIR:$PATH"
 eval "$(fnm env --use-on-cd)"
 
 # mise
-eval "$(~/.local/bin/mise activate bash)"
+eval "$(mise activate bash)"
 
 # direnv
 eval "$(direnv hook bash)"
 
-# uv
+# rustup/cargo (per-user toolchains in ~/.cargo)
 export PATH="$HOME/.cargo/bin:$PATH"
 
 # Podman aliases (Docker-compatible muscle memory)
