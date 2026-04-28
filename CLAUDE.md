@@ -13,7 +13,7 @@ environment built on Fedora bootc, Podman, and Quadlets. Forked and rewritten fr
 `intelligentcode-ai/claude-code-vm` for RHEL-family systems with hook-based security
 enforcement replacing unreliable `settings.json` deny rules.
 
-**Owner:** distantgeek — `cooperke@distantgeek.net`
+**Owner:** distantgeek
 **Primary registry:** GHCR (`ghcr.io/distantgeek/fedora-claude-devbox`)
 **Target runtime:** Proxmox VM, homelab (`distantgeek.net`)
 **License:** Apache 2.0
