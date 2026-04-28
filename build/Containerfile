@@ -1,0 +1,184 @@
+FROM quay.io/fedora/fedora-bootc:41
+
+# ---------------------------------------------------------------------------
+# Labels
+# ---------------------------------------------------------------------------
+LABEL org.opencontainers.image.title="fedora-claude-devbox"
+LABEL org.opencontainers.image.description="Fedora bootc Claude Code devbox — Podman/Quadlets/SELinux"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+
+# ---------------------------------------------------------------------------
+# System packages
+# ---------------------------------------------------------------------------
+RUN dnf install -y \
+    # Core dev tools
+    git \
+    gh \
+    curl \
+    wget \
+    tmux \
+    zsh \
+    vim \
+    jq \
+    yq \
+    make \
+    gcc \
+    gcc-c++ \
+    openssl-devel \
+    pkg-config \
+    # Container tooling
+    podman \
+    buildah \
+    skopeo \
+    podman-compose \
+    # Python (for hooks and uv)
+    python3 \
+    python3-pip \
+    # System services
+    qemu-guest-agent \
+    firewalld \
+    # direnv
+    direnv \
+    # Misc tools
+    tree \
+    htop \
+    ripgrep \
+    fd-find \
+    bat \
+    && dnf clean all
+
+# ---------------------------------------------------------------------------
+# Enable system services in the image
+# ---------------------------------------------------------------------------
+RUN systemctl enable qemu-guest-agent \
+    && systemctl enable firewalld \
+    && systemctl enable podman.socket
+
+# ---------------------------------------------------------------------------
+# fnm (Fast Node Manager)
+# ---------------------------------------------------------------------------
+RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- \
+    --install-dir /usr/local/share/fnm \
+    --skip-shell
+
+ENV FNM_DIR=/usr/local/share/fnm
+ENV PATH="/usr/local/share/fnm:$PATH"
+
+# Install default Node LTS (required for Claude Code)
+RUN fnm install --lts && fnm default lts-latest
+
+# ---------------------------------------------------------------------------
+# uv (Python package manager)
+# ---------------------------------------------------------------------------
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.cargo/bin:$PATH"
+
+# ---------------------------------------------------------------------------
+# rustup (no default toolchain — projects pin via rust-toolchain.toml)
+# ---------------------------------------------------------------------------
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain none --no-modify-path
+ENV PATH="/root/.cargo/bin:$PATH"
+
+# ---------------------------------------------------------------------------
+# mise (unified version manager)
+# ---------------------------------------------------------------------------
+RUN curl https://mise.run | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# ---------------------------------------------------------------------------
+# Claude Code CLI
+# ---------------------------------------------------------------------------
+RUN /usr/local/share/fnm/fnm exec --using=lts-latest npm install -g @anthropic-ai/claude-code
+
+# ---------------------------------------------------------------------------
+# Hook suite — deployed to /etc/claude/hooks/
+# Deploy to skel so it propagates to new user home directories
+# ---------------------------------------------------------------------------
+COPY hooks/ /etc/skel/.claude/hooks/
+COPY config/settings.json /etc/skel/.claude/settings.json
+COPY CLAUDE.md /etc/skel/.claude/CLAUDE.md
+
+# Make hooks executable
+RUN chmod +x /etc/skel/.claude/hooks/pre_tool_use/*.py \
+    && chmod +x /etc/skel/.claude/hooks/post_tool_use/*.py
+
+# ---------------------------------------------------------------------------
+# firewalld baseline — restrict to homelab ranges
+# (runtime rules applied via Ansible configure.yml for flexibility)
+# ---------------------------------------------------------------------------
+# No firewall-cmd here; bootc image builds don't have a running firewalld.
+# Rules applied post-deploy by Ansible.
+
+# ---------------------------------------------------------------------------
+# SELinux
+# ---------------------------------------------------------------------------
+# SELinux policy customizations go here as policy modules are built.
+# Placeholder — extend as needed during development.
+# RUN semodule -i /path/to/custom.pp
+
+# ---------------------------------------------------------------------------
+# Rootless Podman config skeleton
+# ---------------------------------------------------------------------------
+RUN mkdir -p /etc/skel/.config/containers
+COPY config/containers/ /etc/skel/.config/containers/
+
+# ---------------------------------------------------------------------------
+# Shell integrations for /etc/skel/.bashrc
+# ---------------------------------------------------------------------------
+RUN cat >> /etc/skel/.bashrc << 'EOF'
+
+# --- fedora-claude-devbox shell integrations ---
+
+# fnm
+export FNM_DIR="/usr/local/share/fnm"
+export PATH="$FNM_DIR:$PATH"
+eval "$(fnm env --use-on-cd)"
+
+# mise
+eval "$(~/.local/bin/mise activate bash)"
+
+# direnv
+eval "$(direnv hook bash)"
+
+# uv
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# Podman aliases (Docker-compatible muscle memory)
+alias docker='podman'
+alias docker-compose='podman-compose'
+
+# Quadlet helpers
+alias qdreload='systemctl --user daemon-reload'
+alias qdstart='systemctl --user start'
+alias qdstop='systemctl --user stop'
+alias qdstatus='systemctl --user status'
+alias qdlogs='journalctl --user -u'
+
+# Git shortcuts
+alias gs='git status'
+alias gd='git diff'
+alias gds='git diff --staged'
+
+# Safety aliases
+alias rm='rm -i'
+EOF
+
+# ---------------------------------------------------------------------------
+# DEVBOX_INSTALLED.md placeholder in skel
+# ---------------------------------------------------------------------------
+RUN cat > /etc/skel/DEVBOX_INSTALLED.md << 'EOF'
+# DEVBOX_INSTALLED.md
+
+Tracks ad hoc installs made by Claude Code or manually.
+Update on every install outside the base bootc image.
+
+| Date | Tool | Version | Method | Project | Reason |
+|------|------|---------|--------|---------|--------|
+| (image) | git, podman, buildah, skopeo | system | dnf | base | Core tooling |
+| (image) | fnm | latest | curl installer | base | Node version manager |
+| (image) | uv | latest | curl installer | base | Python package manager |
+| (image) | rustup | latest | curl installer | base | Rust toolchain manager |
+| (image) | mise | latest | curl installer | base | Unified version manager |
+| (image) | claude | latest | npm global | base | Claude Code CLI |
+EOF

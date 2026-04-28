@@ -1,0 +1,114 @@
+---
+# ── kubectl ─────────────────────────────────────────────────────────────────
+
+- name: Get latest kubectl version
+  ansible.builtin.uri:
+    url: https://dl.k8s.io/release/stable.txt
+    return_content: true
+  register: kubectl_stable_version
+  when: kubectl_version == 'latest'
+
+- name: Set kubectl version fact
+  ansible.builtin.set_fact:
+    kubectl_resolved_version: "{{ kubectl_stable_version.content | trim if kubectl_version == 'latest' else kubectl_version }}"
+
+- name: Install kubectl
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/{{ kubectl_resolved_version }}/bin/linux/amd64/kubectl"
+    dest: /usr/local/bin/kubectl
+    mode: "0755"
+  become: true
+
+- name: Verify kubectl
+  ansible.builtin.command: kubectl version --client
+  register: kubectl_check
+  changed_when: false
+
+# ── helm ─────────────────────────────────────────────────────────────────────
+
+- name: Install helm via script
+  ansible.builtin.shell: |
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  args:
+    creates: /usr/local/bin/helm
+  become: true
+
+- name: Verify helm
+  ansible.builtin.command: helm version
+  register: helm_check
+  changed_when: false
+
+# ── k3s ──────────────────────────────────────────────────────────────────────
+
+- name: Install k3s
+  when: kubernetes_backend == 'k3s'
+  block:
+    - name: Download and run k3s installer
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | sh -
+      args:
+        creates: /usr/local/bin/k3s
+      become: true
+
+    - name: Enable and start k3s service
+      ansible.builtin.systemd:
+        name: k3s
+        state: started
+        enabled: true
+      become: true
+
+    - name: Wait for k3s to be ready
+      ansible.builtin.command: k3s kubectl get nodes
+      register: k3s_nodes
+      retries: 12
+      delay: 10
+      until: k3s_nodes.rc == 0
+      become: true
+      changed_when: false
+
+    - name: Copy kubeconfig for user
+      ansible.builtin.shell: |
+        mkdir -p {{ target_user_home }}/.kube
+        cp /etc/rancher/k3s/k3s.yaml {{ target_user_home }}/.kube/config
+        chown {{ target_user }}:{{ target_user }} {{ target_user_home }}/.kube/config
+        chmod 0600 {{ target_user_home }}/.kube/config
+        sed -i 's/127.0.0.1/{{ ansible_default_ipv4.address }}/g' {{ target_user_home }}/.kube/config
+      become: true
+      changed_when: true
+
+# ── KIND ─────────────────────────────────────────────────────────────────────
+
+- name: Install KIND
+  when: kubernetes_backend == 'kind'
+  block:
+    - name: Get latest KIND version
+      ansible.builtin.uri:
+        url: https://api.github.com/repos/kubernetes-sigs/kind/releases/latest
+        return_content: true
+      register: kind_release
+      when: kind_version == 'latest'
+
+    - name: Set KIND version fact
+      ansible.builtin.set_fact:
+        kind_resolved_version: >-
+          {{ (kind_release.json.tag_name if kind_version == 'latest' else kind_version) }}
+
+    - name: Download KIND binary
+      ansible.builtin.get_url:
+        url: "https://kind.sigs.k8s.io/dl/{{ kind_resolved_version }}/kind-linux-amd64"
+        dest: /usr/local/bin/kind
+        mode: "0755"
+      become: true
+
+    - name: Verify KIND
+      ansible.builtin.command: kind version
+      register: kind_check
+      changed_when: false
+
+- name: Display Kubernetes install summary
+  ansible.builtin.debug:
+    msg: |
+      ── Kubernetes installed ──
+      Backend  : {{ kubernetes_backend }}
+      kubectl  : {{ kubectl_check.stdout }}
+      helm     : {{ helm_check.stdout }}

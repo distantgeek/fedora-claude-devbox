@@ -1,0 +1,58 @@
+---
+- name: Configure global git user name
+  community.general.git_config:
+    name: user.name
+    value: "{{ git_user_name }}"
+    scope: global
+  when: git_user_name != ''
+
+- name: Configure global git user email
+  community.general.git_config:
+    name: user.email
+    value: "{{ git_user_email }}"
+    scope: global
+  when: git_user_email != ''
+
+- name: Configure default branch name
+  community.general.git_config:
+    name: init.defaultBranch
+    value: "{{ git_default_branch }}"
+    scope: global
+
+- name: Configure git pull rebase
+  community.general.git_config:
+    name: pull.rebase
+    value: "false"
+    scope: global
+
+- name: Ensure ~/.ssh directory exists
+  ansible.builtin.file:
+    path: "{{ target_user_home }}/.ssh"
+    state: directory
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0700"
+
+- name: Configure GitHub CLI authentication (if PAT provided)
+  when: github_pat != '' and github_username != ''
+  block:
+    - name: Write GitHub credentials to git credential store
+      ansible.builtin.shell: |
+        echo "https://{{ github_username }}:{{ github_pat }}@github.com" | \
+          git credential-store --file ~/.git-credentials store
+      no_log: true
+      changed_when: false
+
+    - name: Configure git to use credential store for github.com
+      community.general.git_config:
+        name: credential.helper
+        value: store
+        scope: global
+
+- name: Display git configuration summary
+  ansible.builtin.debug:
+    msg: |
+      ── git configured ──
+      user.name  : {{ git_user_name }}
+      user.email : {{ git_user_email }}
+      defaultBranch: {{ git_default_branch }}

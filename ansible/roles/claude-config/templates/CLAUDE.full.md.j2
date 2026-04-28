@@ -1,0 +1,100 @@
+# fedora-claude-devbox — Runtime Context
+## Tier: Full (Kubernetes)
+
+**Host:** {{ inventory_hostname }} | **User:** {{ target_user }} | **Home:** {{ target_user_home }}
+**OS:** {{ ansible_distribution }} {{ ansible_distribution_version }} (bootc, immutable)
+**Deployed:** {{ ansible_date_time.date }}
+**Kubernetes backend:** {{ kubernetes_backend | default('k3s') }}
+
+---
+
+## Available Tools
+
+| Tool | Command | Notes |
+|------|---------|-------|
+| Git | `git`, `gh` | SSH deploy keys configured |
+| Node.js LTS | `node`, `npm`, `npx` | Managed by fnm |
+| Claude Code | `claude` | Global npm install via fnm |
+| Python / uv | `uv`, `uvx` | No global pip — always use uv venvs |
+| Rust | `rustup`, `cargo` | No default toolchain — pin via `rust-toolchain.toml` |
+| mise | `mise` | Unified version manager |
+| direnv | `direnv` | Auto-loads `.envrc` on `cd` |
+| Podman | `podman`, `buildah`, `skopeo` | Rootless by default |
+| kubectl | `kubectl` | Configured for local cluster |
+| helm | `helm` | Package manager for Kubernetes |
+{% if kubernetes_backend | default('k3s') == 'k3s' %}
+| k3s | `k3s`, `k3s kubectl` | Lightweight Kubernetes — `systemctl status k3s` |
+{% else %}
+| KIND | `kind` | Kubernetes in container — `kind get clusters` |
+{% endif %}
+
+---
+
+## MCP Servers
+
+{% if mcp_servers_deployed | default(false) %}
+| Server | Purpose | API Key Required |
+|--------|---------|-----------------|
+| memory | Persistent cross-session memory | No |
+| sequential-thinking | Structured reasoning chains | No |
+| puppeteer | Headless browser — real DOM, JS, screenshots | No |
+| doc-forge | Document generation | No |
+{% if brave_api_key is defined and brave_api_key %}
+| brave-search | Web search | Yes (configured) |
+{% endif %}
+{% if upstash_redis_rest_url is defined and upstash_redis_rest_url %}
+| context7 | Library docs | Yes (configured) |
+{% endif %}
+{% if tavily_api_key is defined and tavily_api_key %}
+| omnisearch | Multi-provider search | Yes (configured) |
+{% endif %}
+{% else %}
+MCP servers: **not deployed**.
+{% endif %}
+
+---
+
+## Kubernetes
+
+{% if kubernetes_backend | default('k3s') == 'k3s' %}
+```bash
+# Cluster status
+systemctl status k3s
+kubectl get nodes
+kubectl get pods -A
+
+# Kubeconfig is at /etc/rancher/k3s/k3s.yaml (root) or ~/.kube/config (user copy)
+```
+{% else %}
+```bash
+# KIND cluster management
+kind get clusters
+kind create cluster --name devbox
+kubectl config use-context kind-devbox
+kubectl get nodes
+```
+{% endif %}
+
+**Podman and Kubernetes coexist:** use Podman for local dev/build, Kubernetes for
+workload deployment and orchestration.
+
+---
+
+## Environment Rules
+
+- **Packages:** `dnf` only. Log installs in `~/DEVBOX_INSTALLED.md`.
+- **Containers:** Podman for builds/dev. Kubernetes for deployed workloads.
+- **SELinux:** Always enforcing. Never `setenforce 0`.
+- **Sessions:** Use `tmux` for anything over a minute.
+
+## System Upgrade
+
+```bash
+sudo bootc upgrade && sudo reboot
+# Rollback: sudo bootc rollback && sudo reboot
+```
+
+## Security
+
+Hook suite active at `~/.claude/hooks/`. Sensitive paths blocked.
+See `~/.claude/CLAUDE.md` (full context doc) for complete security model.

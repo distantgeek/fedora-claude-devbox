@@ -1,0 +1,86 @@
+---
+- name: Ensure firewalld is running
+  ansible.builtin.systemd:
+    name: firewalld
+    state: started
+    enabled: true
+  become: true
+
+- name: Set default firewalld zone to drop
+  ansible.builtin.command: firewall-cmd --set-default-zone=drop
+  become: true
+  changed_when: false
+
+- name: Allow SSH in firewalld
+  ansible.posix.firewalld:
+    service: ssh
+    state: enabled
+    permanent: true
+    immediate: true
+  become: true
+
+- name: Trust homelab source ranges
+  ansible.posix.firewalld:
+    source: "{{ item }}"
+    zone: trusted
+    state: enabled
+    permanent: true
+    immediate: true
+  loop: "{{ firewall_trusted_sources }}"
+  become: true
+
+- name: Enable user lingering for rootless Podman services
+  ansible.builtin.command: loginctl enable-linger {{ target_user }}
+  become: true
+  changed_when: false
+
+- name: Ensure podman.socket is enabled (system)
+  ansible.builtin.systemd:
+    name: podman.socket
+    state: started
+    enabled: true
+  become: true
+  ignore_errors: true
+
+- name: Ensure ~/.config/containers exists
+  ansible.builtin.file:
+    path: "{{ target_user_home }}/.config/containers"
+    state: directory
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0755"
+
+- name: Ensure ~/repos directory exists
+  ansible.builtin.file:
+    path: "{{ target_user_home }}/repos"
+    state: directory
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0755"
+
+- name: Ensure DEVBOX_INSTALLED.md exists
+  ansible.builtin.stat:
+    path: "{{ target_user_home }}/DEVBOX_INSTALLED.md"
+  register: devbox_installed_stat
+
+- name: Create DEVBOX_INSTALLED.md if missing
+  ansible.builtin.copy:
+    dest: "{{ target_user_home }}/DEVBOX_INSTALLED.md"
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0644"
+    content: |
+      # DEVBOX_INSTALLED.md
+
+      Tracks ad hoc installs made by Claude Code or manually.
+      Update on every install outside the base bootc image.
+
+      | Date | Tool | Version | Method | Project | Reason |
+      |------|------|---------|--------|---------|--------|
+      | (image) | git, podman, buildah, skopeo | system | dnf | base | Core tooling |
+      | (image) | fnm | latest | curl installer | base | Node version manager |
+      | (image) | uv | latest | curl installer | base | Python package manager |
+      | (image) | rustup | latest | curl installer | base | Rust toolchain manager |
+      | (image) | mise | latest | curl installer | base | Unified version manager |
+      | (image) | claude | latest | npm global | base | Claude Code CLI |
+  when: not devbox_installed_stat.stat.exists

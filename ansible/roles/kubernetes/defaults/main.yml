@@ -1,0 +1,10 @@
+---
+target_user: kevbot
+target_user_home: "/home/{{ target_user }}"
+
+kubernetes_backend: "{{ lookup('env', 'K8S_BACKEND') | default('k3s', true) }}"
+
+kubectl_version: latest       # 'latest' or specific e.g. 'v1.31.0'
+helm_version: latest
+k3s_version: latest
+kind_version: latest

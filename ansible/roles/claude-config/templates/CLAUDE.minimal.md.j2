@@ -1,0 +1,47 @@
+# fedora-claude-devbox — Runtime Context
+## Tier: Minimal
+
+**Host:** {{ inventory_hostname }} | **User:** {{ target_user }} | **Home:** {{ target_user_home }}
+**OS:** {{ ansible_distribution }} {{ ansible_distribution_version }} (bootc, immutable)
+**Deployed:** {{ ansible_date_time.date }}
+
+---
+
+## Available Tools
+
+| Tool | Command | Notes |
+|------|---------|-------|
+| Git | `git`, `gh` | SSH deploy keys configured |
+| Node.js LTS | `node`, `npm`, `npx` | Managed by fnm |
+| Claude Code | `claude` | Global npm install via fnm |
+| Python / uv | `uv`, `uvx` | No global pip — always use uv venvs |
+| Rust | `rustup`, `cargo` | No default toolchain — pin via `rust-toolchain.toml` |
+| mise | `mise` | Unified version manager — `.mise.toml` per project |
+| direnv | `direnv` | Auto-loads `.envrc` on `cd` |
+| Podman | `podman`, `buildah`, `skopeo` | Rootless by default |
+
+MCP servers: **not deployed** (minimal tier).
+Kubernetes: **not installed**.
+
+---
+
+## Environment Rules
+
+- **Packages:** `dnf` only. `sudo` required for system installs. Log in `~/DEVBOX_INSTALLED.md`.
+- **Containers:** Podman only. Never `docker` or `docker-compose`.
+- **Services:** Quadlet `.container` files in `~/.config/containers/systemd/`. Reload: `systemctl --user daemon-reload`.
+- **SELinux:** Always enforcing. Use `:Z`/`:z` volume labels. Never `setenforce 0`.
+- **Sessions:** Use `tmux` for anything over a minute (`tmux new -s <name>`).
+
+## System Upgrade
+
+```bash
+sudo bootc upgrade && sudo reboot
+# Rollback: sudo bootc rollback && sudo reboot
+```
+
+## Security
+
+Hook suite active at `~/.claude/hooks/`. Sensitive paths blocked
+(`~/.ssh/`, `~/.config/proxmox/`, `.env`, `*.key`, `*.pem`).
+See `~/.claude/CLAUDE.md` (full context doc) for complete security model.

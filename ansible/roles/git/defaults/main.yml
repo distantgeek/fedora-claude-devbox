@@ -1,0 +1,10 @@
+---
+target_user: kevbot
+target_user_home: "/home/{{ target_user }}"
+
+git_user_name: "{{ lookup('env', 'GIT_USER_NAME') | default('kevbot', true) }}"
+git_user_email: "{{ lookup('env', 'GIT_USER_EMAIL') | default('cooperke@distantgeek.net', true) }}"
+github_username: "{{ lookup('env', 'GITHUB_USERNAME') | default('', true) }}"
+github_pat: "{{ lookup('env', 'GITHUB_PAT') | default('', true) }}"
+
+git_default_branch: main

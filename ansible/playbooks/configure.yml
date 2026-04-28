@@ -1,0 +1,46 @@
+---
+# Thin post-boot configuration for fedora-claude-devbox.
+# Run after the bootc image is deployed and the VM has first-booted.
+# Does NOT rebuild the image — only configures runtime state.
+#
+# Usage: make deploy VM_HOST=192.168.x.x [DEVBOX_TIER=enhanced]
+
+- name: Configure fedora-claude-devbox
+  hosts: all
+  gather_facts: true
+
+  vars:
+    target_user: "{{ ansible_user | default('kevbot') }}"
+    target_user_home: "/home/{{ target_user }}"
+    devbox_tier: "{{ lookup('env', 'DEVBOX_TIER') | default('enhanced', true) }}"
+    manage_git_repositories: "{{ lookup('env', 'MANAGE_GIT_REPOSITORIES') | default('false', true) | bool }}"
+
+  pre_tasks:
+    - name: Display deployment info
+      ansible.builtin.debug:
+        msg: |
+          ── fedora-claude-devbox configure ──
+          Host  : {{ inventory_hostname }}
+          User  : {{ target_user }}
+          OS    : {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Tier  : {{ devbox_tier }}
+          Date  : {{ ansible_date_time.date }}
+
+    - name: Verify SSH and sudo access
+      ansible.builtin.command: sudo -n true
+      changed_when: false
+
+  roles:
+    - role: common
+    - role: git
+    - role: git-repos
+      when: manage_git_repositories | bool
+    - role: claude-config
+
+  post_tasks:
+    - name: Deployment complete
+      ansible.builtin.debug:
+        msg: |
+          ── Configuration complete ──
+          Devbox tier  : {{ devbox_tier }}
+          Run validate : make validate VM_HOST={{ inventory_hostname }}

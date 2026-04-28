@@ -1,0 +1,11 @@
+---
+target_user: kevbot
+target_user_home: "/home/{{ target_user }}"
+
+git_repos_base_dir: "{{ target_user_home }}/repos"
+git_update_existing: "{{ lookup('env', 'GIT_UPDATE_EXISTING') | default('true', true) | bool }}"
+
+# Repos are parsed from environment variables at runtime:
+# GIT_REPO_1_URL, GIT_REPO_1_BRANCH, GIT_REPO_1_DEPTH, GIT_REPO_1_POST_CLONE
+# GIT_REPO_2_URL, etc.
+git_repo_count_max: 20

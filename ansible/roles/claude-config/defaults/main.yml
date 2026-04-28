@@ -1,0 +1,14 @@
+---
+target_user: kevbot
+target_user_home: "/home/{{ target_user }}"
+devbox_tier: enhanced          # minimal | enhanced | full
+mcp_servers_deployed: false
+
+# MCP API keys — loaded from environment; empty string = skip that server
+brave_api_key: "{{ lookup('env', 'BRAVE_API_KEY') | default('', true) }}"
+upstash_redis_rest_url: "{{ lookup('env', 'UPSTASH_REDIS_REST_URL') | default('', true) }}"
+upstash_redis_rest_token: "{{ lookup('env', 'UPSTASH_REDIS_REST_TOKEN') | default('', true) }}"
+tavily_api_key: "{{ lookup('env', 'TAVILY_API_KEY') | default('', true) }}"
+
+# Source repo root (set by playbook or make)
+repo_root: "{{ playbook_dir }}/../.."

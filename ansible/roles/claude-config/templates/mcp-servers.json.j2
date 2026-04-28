@@ -1,0 +1,56 @@
+{
+  "mcpServers": {
+    "memory": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "env": {}
+    },
+    "sequential-thinking": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "env": {}
+    },
+    "puppeteer": {
+      "type": "stdio",
+      "command": "podman",
+      "args": ["run", "-i", "--rm", "--init", "-e", "DOCKER_CONTAINER=true", "mcp/puppeteer"],
+      "env": {}
+    },
+    "doc-forge": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@cablate/mcp-doc-forge"],
+      "env": {}
+    }{% if include_brave | default(false) %},
+    "brave-search": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "{{ brave_api_key }}"
+      }
+    }{% endif %}{% if include_context7 | default(false) %},
+    "context7": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"],
+      "env": {
+        "UPSTASH_REDIS_REST_URL": "{{ upstash_redis_rest_url }}",
+        "UPSTASH_REDIS_REST_TOKEN": "{{ upstash_redis_rest_token }}"
+      }
+    }{% endif %}{% if include_omnisearch | default(false) %},
+    "omnisearch": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "mcp-omnisearch"],
+      "env": {
+        "TAVILY_API_KEY": "{{ tavily_api_key }}"
+        {% if brave_api_key != '' %},
+        "BRAVE_API_KEY": "{{ brave_api_key }}"
+        {% endif %}
+      }
+    }{% endif %}
+  }
+}

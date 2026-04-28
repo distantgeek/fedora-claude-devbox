@@ -1,0 +1,160 @@
+---
+# Post-deployment validation for fedora-claude-devbox.
+# Verifies the devbox is correctly configured after make deploy.
+#
+# Usage: make validate VM_HOST=192.168.x.x
+
+- name: Validate fedora-claude-devbox deployment
+  hosts: all
+  gather_facts: true
+
+  vars:
+    target_user: "{{ ansible_user | default('kevbot') }}"
+    target_user_home: "/home/{{ target_user }}"
+
+  tasks:
+    # ── bootc ──────────────────────────────────────────────────────────────
+    - name: Check bootc status
+      ansible.builtin.command: bootc status
+      register: bootc_status
+      changed_when: false
+      become: true
+
+    - name: Display bootc status
+      ansible.builtin.debug:
+        msg: "{{ bootc_status.stdout_lines[:5] }}"
+
+    # ── Podman ────────────────────────────────────────────────────────────
+    - name: Check Podman version
+      ansible.builtin.command: podman --version
+      register: podman_version
+      changed_when: false
+
+    - name: Verify rootless Podman works
+      ansible.builtin.command: podman info --format '{{ "{{" }}.Host.Security.SELinuxEnabled{{ "}}" }}'
+      register: podman_selinux
+      changed_when: false
+
+    # ── Claude Code ───────────────────────────────────────────────────────
+    - name: Check Claude Code version
+      ansible.builtin.shell: |
+        source ~/.bashrc && claude --version
+      args:
+        executable: /bin/bash
+      register: claude_version
+      changed_when: false
+
+    # ── Node / fnm ────────────────────────────────────────────────────────
+    - name: Check Node.js version
+      ansible.builtin.shell: |
+        export FNM_DIR=/usr/local/share/fnm
+        export PATH="$FNM_DIR:$PATH"
+        eval "$(fnm env)"
+        node --version
+      args:
+        executable: /bin/bash
+      register: node_version
+      changed_when: false
+
+    # ── uv ────────────────────────────────────────────────────────────────
+    - name: Check uv version
+      ansible.builtin.command: uv --version
+      register: uv_version
+      changed_when: false
+      environment:
+        PATH: "{{ target_user_home }}/.cargo/bin:{{ ansible_env.PATH }}"
+
+    # ── rustup ────────────────────────────────────────────────────────────
+    - name: Check rustup
+      ansible.builtin.command: rustup --version
+      register: rustup_version
+      changed_when: false
+      environment:
+        PATH: "{{ target_user_home }}/.cargo/bin:{{ ansible_env.PATH }}"
+
+    # ── mise ──────────────────────────────────────────────────────────────
+    - name: Check mise version
+      ansible.builtin.command: mise --version
+      register: mise_version
+      changed_when: false
+      environment:
+        PATH: "{{ target_user_home }}/.local/bin:{{ ansible_env.PATH }}"
+
+    # ── SELinux ───────────────────────────────────────────────────────────
+    - name: Check SELinux status
+      ansible.builtin.command: getenforce
+      register: selinux_status
+      changed_when: false
+      become: true
+
+    - name: Assert SELinux is enforcing
+      ansible.builtin.assert:
+        that: selinux_status.stdout == "Enforcing"
+        fail_msg: "SELinux is NOT enforcing ({{ selinux_status.stdout }}). This is a security regression."
+        success_msg: "SELinux is Enforcing."
+
+    # ── firewalld ─────────────────────────────────────────────────────────
+    - name: Check firewalld status
+      ansible.builtin.systemd:
+        name: firewalld
+      register: firewalld_status
+      become: true
+
+    - name: Assert firewalld is active
+      ansible.builtin.assert:
+        that: firewalld_status.status.ActiveState == "active"
+        fail_msg: "firewalld is not running."
+        success_msg: "firewalld is active."
+
+    # ── User lingering ────────────────────────────────────────────────────
+    - name: Check user lingering
+      ansible.builtin.command: loginctl show-user {{ target_user }} --property=Linger
+      register: linger_status
+      changed_when: false
+      become: true
+
+    - name: Assert lingering is enabled
+      ansible.builtin.assert:
+        that: "'Linger=yes' in linger_status.stdout"
+        fail_msg: "User lingering is not enabled for {{ target_user }}. Rootless Podman services will not survive logout."
+        success_msg: "User lingering enabled."
+
+    # ── Hooks ─────────────────────────────────────────────────────────────
+    - name: Check hook scripts exist and are executable
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: hook_stats
+      loop:
+        - "{{ target_user_home }}/.claude/hooks/pre_tool_use/enforce_permissions.py"
+        - "{{ target_user_home }}/.claude/hooks/post_tool_use/scrub_output.py"
+        - "{{ target_user_home }}/.claude/hooks/lib/patterns.py"
+
+    - name: Assert hooks are executable
+      ansible.builtin.assert:
+        that: item.stat.exists and item.stat.executable
+        fail_msg: "Hook not found or not executable: {{ item.item }}"
+        success_msg: "Hook OK: {{ item.item }}"
+      loop: "{{ hook_stats.results }}"
+
+    # ── DEVBOX_INSTALLED.md ───────────────────────────────────────────────
+    - name: Check DEVBOX_INSTALLED.md exists
+      ansible.builtin.stat:
+        path: "{{ target_user_home }}/DEVBOX_INSTALLED.md"
+      register: devbox_installed
+
+    # ── Summary ───────────────────────────────────────────────────────────
+    - name: Validation summary
+      ansible.builtin.debug:
+        msg: |
+          ── fedora-claude-devbox validation summary ──
+          bootc         : {{ bootc_status.stdout_lines[0] | default('unknown') }}
+          Podman        : {{ podman_version.stdout }}
+          SELinux       : {{ selinux_status.stdout }}
+          firewalld     : {{ firewalld_status.status.ActiveState }}
+          Linger        : {{ linger_status.stdout }}
+          Claude Code   : {{ claude_version.stdout | default('not found') }}
+          Node.js       : {{ node_version.stdout | default('not found') }}
+          uv            : {{ uv_version.stdout | default('not found') }}
+          rustup        : {{ rustup_version.stdout | default('not found') }}
+          mise          : {{ mise_version.stdout | default('not found') }}
+          DEVBOX_INSTALLED.md : {{ 'present' if devbox_installed.stat.exists else 'MISSING' }}

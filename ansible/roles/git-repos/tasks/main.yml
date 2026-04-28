@@ -1,0 +1,50 @@
+---
+- name: Ensure repos base directory exists
+  ansible.builtin.file:
+    path: "{{ git_repos_base_dir }}"
+    state: directory
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0755"
+
+- name: Build repo list from environment variables
+  ansible.builtin.set_fact:
+    git_repos: >-
+      {{
+        git_repos | default([]) + [{
+          'url':        lookup('env', 'GIT_REPO_' + item | string + '_URL'),
+          'branch':     lookup('env', 'GIT_REPO_' + item | string + '_BRANCH') | default('main', true),
+          'depth':      lookup('env', 'GIT_REPO_' + item | string + '_DEPTH') | default('0', true) | int,
+          'post_clone': lookup('env', 'GIT_REPO_' + item | string + '_POST_CLONE') | default('', true)
+        }]
+      }}
+  loop: "{{ range(1, git_repo_count_max + 1) | list }}"
+  when: lookup('env', 'GIT_REPO_' + item | string + '_URL') != ''
+
+- name: Clone / update repositories
+  ansible.builtin.git:
+    repo: "{{ item.url }}"
+    dest: "{{ git_repos_base_dir }}/{{ item.url | basename | regex_replace('\\.git$', '') }}"
+    version: "{{ item.branch }}"
+    depth: "{{ item.depth if item.depth > 0 else omit }}"
+    update: "{{ git_update_existing }}"
+    force: false
+  loop: "{{ git_repos | default([]) }}"
+  when: item.url != ''
+  register: git_clone_results
+
+- name: Run post-clone commands
+  ansible.builtin.shell: "{{ item.item.post_clone }}"
+  args:
+    chdir: "{{ git_repos_base_dir }}/{{ item.item.url | basename | regex_replace('\\.git$', '') }}"
+    executable: /bin/bash
+  loop: "{{ git_clone_results.results | default([]) }}"
+  when:
+    - item.item.post_clone != ''
+    - item.changed
+
+- name: Display cloned repos
+  ansible.builtin.debug:
+    msg: "Cloned/updated: {{ item.item.url }}"
+  loop: "{{ git_clone_results.results | default([]) }}"
+  when: item.changed

@@ -1,0 +1,13 @@
+---
+target_user: kevbot
+target_user_home: "/home/{{ target_user }}"
+
+# firewalld — restrict outbound SSH/SCP to homelab ranges
+firewall_trusted_sources:
+  - "192.168.0.0/16"
+  - "10.0.0.0/8"
+
+# Services to ensure are running
+required_services:
+  - firewalld
+  - podman.socket

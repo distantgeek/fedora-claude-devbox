@@ -1,0 +1,55 @@
+{
+  "_comment": "MCP server configuration for fedora-claude-devbox. Deployed by ansible/roles/claude-config. Servers requiring API keys are skipped if the key env var is empty.",
+  "mcpServers": {
+    "memory": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "env": {}
+    },
+    "sequential-thinking": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "env": {}
+    },
+    "puppeteer": {
+      "type": "stdio",
+      "command": "podman",
+      "args": ["run", "-i", "--rm", "--init", "-e", "DOCKER_CONTAINER=true", "mcp/puppeteer"],
+      "env": {}
+    },
+    "doc-forge": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@cablate/mcp-doc-forge"],
+      "env": {}
+    },
+    "brave-search": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      }
+    },
+    "context7": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"],
+      "env": {
+        "UPSTASH_REDIS_REST_URL": "${UPSTASH_REDIS_REST_URL}",
+        "UPSTASH_REDIS_REST_TOKEN": "${UPSTASH_REDIS_REST_TOKEN}"
+      }
+    },
+    "omnisearch": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "mcp-omnisearch"],
+      "env": {
+        "TAVILY_API_KEY": "${TAVILY_API_KEY}",
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      }
+    }
+  }
+}
