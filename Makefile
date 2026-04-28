@@ -138,7 +138,7 @@ clean:
 build-disk-image:
 	@echo ">>> Converting $(FULL_IMAGE) to raw disk image for Proxmox"
 	mkdir -p output
-	sudo podman run --rm -it \
+	sudo podman run --rm -i \
 		--privileged \
 		--pull=newer \
 		-v $(PWD)/output:/output \
