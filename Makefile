@@ -136,6 +136,8 @@ clean:
 # ---------------------------------------------------------------------------
 
 build-disk-image:
+	@echo ">>> Pulling $(FULL_IMAGE) into root storage for bootc-image-builder"
+	sudo podman pull $(FULL_IMAGE)
 	@echo ">>> Converting $(FULL_IMAGE) to raw disk image for Proxmox"
 	mkdir -p output
 	sudo podman run --rm -i \
