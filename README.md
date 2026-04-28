@@ -40,9 +40,10 @@ that project; everything else is a ground-up rewrite for Fedora/bootc/Podman/Pro
 | System | firewalld, qemu-guest-agent, direnv |
 | CLI utilities | ripgrep, fd-find, bat, tree, htop, unzip |
 | Node | fnm (Fast Node Manager) + Node LTS |
-| Python | uv + uvx (no system pip usage) |
+| Python | python3, python3-libselinux, uv + uvx |
 | Rust | rustup binary (no default toolchain — pin via `rust-toolchain.toml`) |
 | Versions | mise (unified version manager for Node/Python/Ruby/Go) |
+| Automation | ansible-core (system-wide, all users) |
 | AI | Claude Code CLI (`claude`) |
 | Security | PreToolUse + PostToolUse hook suite |
 
@@ -96,16 +97,19 @@ fedora-claude-devbox/
 **On the build machine** (where you run `make`):
 
 - Podman
-- `ansible` and `ansible-collections` (`ansible-galaxy collection install ansible.posix community.general`)
 - `gh` CLI authenticated with `write:packages` scope
 - `podman login ghcr.io` with a GitHub PAT that has `write:packages`
 - `~/.config/proxmox/token` sourced in your shell (see `CLAUDE.md`)
 
+> `ansible-core` is baked into the devbox image — you do not need it on the build machine.
+> The devbox manages itself and other homelab targets once deployed.
+
 **For Proxmox import:**
 
-- SSH access to the Proxmox host as root
+- SSH access to the Proxmox host as root (or via dedicated key — see `docs/PROXMOX_SETUP.md`)
+- Proxmox API token with `ClaudeDevbox` role (see `CLAUDE.md` → Proxmox API Access)
 - A VMID reserved for the devbox
-- An SSD-backed storage pool
+- An LVM thin or directory storage pool
 
 ---
 
@@ -114,10 +118,14 @@ fedora-claude-devbox/
 ### 1. Build the image
 
 ```bash
+# Public image (generic 'devbox' user):
 make build-image
+
+# Personal build with your username baked in:
+make build-image DEVBOX_USER=yourname
 ```
 
-See `docs/BUILDING.md` for notes on bootc-specific build quirks.
+See `docs/BUILDING.md` for notes on bootc-specific build quirks and the `DEVBOX_USER` arg.
 
 ### 2. Push to registry
 
@@ -129,16 +137,18 @@ make push-image
 
 ```bash
 make build-disk-image
-# Output: output/disk.raw
+# Output: output/image/disk.raw
 ```
 
-### 4. Import to Proxmox
+### 4. Import to Proxmox and create VM
 
 ```bash
-scp output/disk.raw root@<proxmox-host>:/tmp/
-ssh root@<proxmox-host> \
-  "qm importdisk <VMID> /tmp/disk.raw <storage-pool> --format raw"
-# Then: attach disk in Proxmox UI, set boot order, start VM
+scp output/image/disk.raw root@<proxmox-host>:/tmp/
+
+# PVE 9+ syntax:
+ssh root@<proxmox-host> "qm disk import <VMID> /tmp/disk.raw <storage-pool>"
+
+# Attach, resize to 60G, set boot order — full workflow in docs/PROXMOX_SETUP.md
 ```
 
 Full hardware configuration and VM settings: see `docs/PROXMOX_SETUP.md`.

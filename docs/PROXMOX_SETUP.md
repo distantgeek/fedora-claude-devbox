@@ -14,11 +14,10 @@
 ### CPU
 | Setting | Value | Reason |
 |---------|-------|--------|
-| CPU Type | **host** | Passes through all host CPU flags; rustup/mise need AVX2; Claude Code benefits from full ISA |
+| CPU Type | **host** | Passes through all host CPU flags; rustup/mise need AVX2 |
 | Sockets | 1 | |
 | Cores | 4 | Comfortable for parallel builds; 2 minimum |
 | NUMA | disabled | Single socket, not needed |
-| VCPUs | 4 | Match cores |
 
 > **Important:** Do NOT use the default `kvm64` CPU type. It strips modern instruction
 > sets that Rust compilation and some Node tooling depend on. Use `host` for a devbox
@@ -29,147 +28,257 @@
 |---------|-------|--------|
 | RAM | 8192 MB (8GB) | Comfortable floor; Tauri builds and cargo are hungry |
 | Ballooning | disabled | Devbox has variable memory pressure; ballooning causes latency spikes |
-| Minimum RAM | n/a | Disable ballooning entirely |
 
-> Bump to 12288 MB (12GB) if you plan to run local LLM inference or heavy Rust
-> workloads (ogoa-character-builder Tauri builds can spike).
+> Bump to 12288 MB (12GB) if you plan to run local LLM inference or heavy Rust workloads.
 
 ### Disk
 | Setting | Value | Reason |
 |---------|-------|--------|
-| Bus | VirtIO Block | Best throughput, lowest latency |
-| Size | 60 GB | Base image + toolchains + repos; 80GB if you anticipate large build artifacts |
-| Storage Pool | SSD-backed pool | bootc image writes are sequential; NVMe-backed pool ideal |
-| Cache | Write Back | Better write performance; acceptable for devbox (not a DB) |
+| Bus | VirtIO SCSI (scsi0) | Best throughput |
+| Size | 60 GB | Base image + toolchains + repos |
+| Cache | Write Back | Better write performance |
 | Discard | enabled | SSD TRIM passthrough |
 | IO Thread | enabled | Better multi-queue disk performance |
-| Backup | yes | Include in Proxmox backup schedule |
 
 ### Network
 | Setting | Value | Reason |
 |---------|-------|--------|
 | Model | VirtIO | Best throughput |
-| Bridge | vmbr0 (or your LAN bridge) | Direct LAN access |
-| Firewall | disabled at Proxmox level | Firewalld inside the VM handles this |
-| MAC Address | static/fixed | So DHCP reservation or static IP stays consistent |
+| Bridge | vmbr0 | Direct LAN access |
+| Firewall | disabled at Proxmox level | firewalld inside the VM handles this |
+| MAC Address | static/fixed | Reserve a DHCP lease for consistency |
 
 ### QEMU Guest Agent
-| Setting | Value |
-|---------|-------|
-| QEMU Guest Agent | **enabled** |
+Enable in Proxmox UI and it is already installed + enabled in the image.
+Without it, Proxmox cannot gracefully shut down the VM or report IP addresses.
 
-Enable this in Proxmox **and** install `qemu-guest-agent` inside the VM.
-Without it, Proxmox can't gracefully shut down the VM or report IP addresses.
-Add to `build/Containerfile`:
-```
-RUN dnf install -y qemu-guest-agent && \
-    systemctl enable qemu-guest-agent
-```
+> **Known limitation:** SELinux restricts the guest agent (`virtd_t` domain) from
+> executing arbitrary binaries. `qm guest exec` calls to run tools like `ip` or
+> `useradd` will fail with Permission denied. Use SSH for all VM management.
 
 ### Display
 | Setting | Value | Reason |
 |---------|-------|--------|
-| Display | Serial Terminal (or VirtIO) | Devbox is headless SSH-only; serial is lightweight |
-| VGA Memory | 4MB | Minimum; you won't use it |
+| Display | Serial Terminal | Devbox is headless SSH-only; serial is lightweight |
+| Serial | socket (serial0) | Required for serial terminal to work |
 
 ---
 
-## Proxmox Host Settings to Adjust
+## Proxmox API Token Setup
 
-### Before deploying the VM
+Claude Code manages Proxmox via REST API using a dedicated token. This is required
+for automated VM provisioning — do not use your personal root credentials.
 
-**1. Enable IOMMU (if not already enabled)**
-Not required for this VM but good practice. In `/etc/default/grub` on the Proxmox host:
+### Create the service account and token
+
+In Proxmox UI:
+
+1. **Create user:** Datacenter → Users → Add
+   - User: `claude`, Realm: `pve` (PAM realm — this creates a Linux user)
+   - Or use an existing user; the key is a scoped token
+
+2. **Create role:** Datacenter → Permissions → Roles → Create
+   - Name: `ClaudeDevbox`
+   - Privileges: `VM.Allocate, VM.Config.Disk, VM.Config.CPU, VM.Config.Memory,
+     VM.Config.Network, VM.Config.Options, VM.Config.Boot, VM.PowerMgmt, VM.Snapshot,
+     VM.Audit, Datastore.AllocateSpace, Datastore.Audit, Sys.Audit`
+
+3. **Create token:** Datacenter → API Tokens → Add
+   - User: `claude@pam`, Token ID: `claudeToken`
+   - **Disable** privilege separation (simplifies ACL management)
+
+4. **Grant permissions** (Datacenter → Permissions → Add → User Permissions):
+   - `/nodes/<node>` → `claude@pam` → `ClaudeDevbox`
+   - `/vms` → `claude@pam` → `ClaudeDevbox`
+   - `/storage` → `claude@pam` → `ClaudeDevbox`
+   - `/sdn/zones` → `claude@pam` → `PVESDNUser` (required for VirtIO NIC on vmbr0 in PVE 9+)
+
+### Store credentials
+
+`~/.config/proxmox/token` on the operator machine (never commit this file):
+
+```bash
+PROXMOX_HOST=192.168.x.x
+PROXMOX_USER=claude@pam
+PROXMOX_TOKEN_NAME=claudeToken
+PROXMOX_TOKEN_VALUE=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
-GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_iommu=on iommu=pt"
+
+Source it in `~/.bashrc` or `~/.zshrc`:
+```bash
+if [ -f "$HOME/.config/proxmox/token" ]; then
+    set -a; source "$HOME/.config/proxmox/token"; set +a
+fi
 ```
-Then `update-grub && reboot`.
 
-**2. Verify SSD-backed storage pool is configured**
-In Datacenter → Storage, confirm the pool backing the VM disk is on SSD/NVMe.
-If using ZFS, verify the pool is on SSD vdevs with `zpool status`.
+### Dedicated SSH key for Proxmox host access
 
-**3. Snapshot before first bootc upgrade**
-After initial deploy, take a manual snapshot in Proxmox before running
-`bootc upgrade` for the first time. bootc has its own rollback (`bootc rollback`)
-but a Proxmox snapshot is a clean external safety net.
+Disk import and some diagnostics require SSH to the Proxmox host. Use a dedicated
+key — not your personal SSH key:
 
-**4. Reserve a static IP or DHCP reservation**
-Set a DHCP reservation for the VM's MAC address on your router/DHCP server so
-the IP doesn't change between reboots. Claude Code on your laptop needs a
-consistent target address.
+```bash
+ssh-keygen -t ed25519 -C "claude-code@fedora-claude-devbox" \
+  -f ~/.ssh/id_ed25519_claude_proxmox -N ""
 
-**5. SSH access from Proxmox host (optional)**
-If you want Claude Code on the laptop to reach the Proxmox API (to create/manage
-the VM itself), enable the Proxmox API token:
-- Datacenter → Permissions → API Tokens → Add
-- Scope it to the specific VM or node
-- Store the token in `~/.config/proxmox/token` on the laptop (never in a repo)
+# Install on Proxmox host (as root):
+cat ~/.ssh/id_ed25519_claude_proxmox.pub >> /root/.ssh/authorized_keys
+```
 
 ---
 
-## bootc Image Deployment to Proxmox
+## Full Deployment Workflow (PVE 9+)
 
-### Method: bootc-image-builder → raw disk image → import to Proxmox
+### 1. Build and push the image
 
 ```bash
-# On your devbox build machine (Aurora-nvidia or laptop):
-# 1. Build the container image
-podman build -t fedora-claude-devbox:latest -f build/Containerfile .
-
-# 2. Convert to raw disk image via bootc-image-builder
-sudo podman run --rm -it \
-  --privileged \
-  --pull=newer \
-  -v $(pwd)/output:/output \
-  -v /var/lib/containers/storage:/var/lib/containers/storage \
-  quay.io/centos-bootc/bootc-image-builder:latest \
-  --type raw \
-  --local \
-  fedora-claude-devbox:latest
-
-# 3. Import to Proxmox (adjust VMID and storage pool)
-scp output/disk.raw root@proxmox:/tmp/
-ssh root@proxmox \
-  "qm importdisk <VMID> /tmp/disk.raw <storage-pool> --format raw"
-
-# 4. In Proxmox UI: attach the imported disk to the VM, set boot order, start VM
+make build-image DEVBOX_USER=yourname
+make push-image
 ```
 
-### After first boot
+### 2. Convert to raw disk
+
 ```bash
-# SSH into the new VM
-ssh kevbot@<devbox-ip>
-
-# Verify bootc is tracking the image
-sudo bootc status
-
-# Enable user lingering for rootless Podman services
-loginctl enable-linger kevbot
-
-# Run thin Ansible configuration
-# (from your laptop, after adjusting inventory)
-make deploy VM_HOST=<devbox-ip>
+make build-disk-image
+# Output at: output/image/disk.raw  (~10GB)
 ```
+
+### 3. Transfer disk to Proxmox host
+
+```bash
+scp output/image/disk.raw root@<proxmox-host>:/tmp/
+```
+
+### 4. Create the VM via API
+
+The Makefile does not include a `create-vm` target yet — use curl or the Proxmox UI.
+Full API example (requires `~/.config/proxmox/token` sourced):
+
+```bash
+set -a && source ~/.config/proxmox/token && set +a
+
+curl -sk -X POST \
+  -H "Authorization: PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_NAME}=${PROXMOX_TOKEN_VALUE}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vmid": <VMID>,
+    "name": "fedora-claude-devbox",
+    "machine": "q35",
+    "bios": "ovmf",
+    "scsihw": "virtio-scsi-single",
+    "cpu": "host",
+    "cores": 4,
+    "sockets": 1,
+    "memory": 8192,
+    "balloon": 0,
+    "net0": "virtio,bridge=vmbr0,firewall=0",
+    "agent": "enabled=1",
+    "efidisk0": "local-lvm:0,efitype=4m,pre-enrolled-keys=0",
+    "serial0": "socket",
+    "vga": "serial0",
+    "ostype": "l26",
+    "onboot": 1
+  }' \
+  "https://${PROXMOX_HOST}:8006/api2/json/nodes/<node>/qemu"
+```
+
+### 5. Import the disk (PVE 9 syntax — run on Proxmox host)
+
+```bash
+# PVE 9+ — note: qm disk import, NOT qm importdisk
+ssh root@<proxmox-host> "qm disk import <VMID> /tmp/disk.raw local-lvm"
+
+# Attach with optimal options
+ssh root@<proxmox-host> \
+  "qm set <VMID> --scsi0 'local-lvm:vm-<VMID>-disk-1,cache=writeback,discard=on,iothread=1'"
+
+# Resize to 60GB
+ssh root@<proxmox-host> "qm disk resize <VMID> scsi0 60G"
+
+# Set boot order
+ssh root@<proxmox-host> "qm set <VMID> --boot order=scsi0"
+
+# Clean up
+ssh root@<proxmox-host> "rm -f /tmp/disk.raw"
+```
+
+> **PVE 9 note:** `qm importdisk` still exists but can silently write the VM config
+> entry without creating the LVM volume. Use `qm disk import` instead and verify
+> with `lvs pve | grep vm-<VMID>`.
+
+### 6. Start VM and get IP
+
+```bash
+# Start via API
+curl -sk -X POST \
+  -H "Authorization: PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_NAME}=${PROXMOX_TOKEN_VALUE}" \
+  "https://${PROXMOX_HOST}:8006/api2/json/nodes/<node>/qemu/<VMID>/status/start"
+
+# Get IP via guest agent (from Proxmox host — avoids API permission requirement)
+ssh root@<proxmox-host> "qm guest cmd <VMID> network-get-interfaces"
+```
+
+### 7. Bootstrap SSH access (first boot only)
+
+The image creates the `DEVBOX_USER` with no SSH key. For first access, inject your
+key via the Proxmox host while the VM is stopped:
+
+```bash
+# Stop VM
+ssh root@<proxmox-host> "qm stop <VMID>"
+
+# Map partitions and inject key into root's home in the ostree layout
+ssh root@<proxmox-host> bash << 'EOF'
+LOOP=$(losetup -f --show -P /dev/pve/vm-<VMID>-disk-1)
+ROOTHOME=/mnt/vm/ostree/deploy/default/var/roothome
+mkdir -p /mnt/vm && mount ${LOOP}p4 /mnt/vm
+mkdir -p ${ROOTHOME}/.ssh && chmod 700 ${ROOTHOME}/.ssh
+echo "YOUR_SSH_PUBLIC_KEY" > ${ROOTHOME}/.ssh/authorized_keys
+chmod 600 ${ROOTHOME}/.ssh/authorized_keys && chown -R 0:0 ${ROOTHOME}/.ssh
+umount /mnt/vm && losetup -d $LOOP
+EOF
+
+# Start VM and SSH in as root
+ssh root@<proxmox-host> "qm start <VMID>"
+ssh root@<vm-ip>
+```
+
+Once SSHed in as root, create the primary user and run Ansible:
+
+```bash
+# On the VM as root — create primary user
+useradd -m -G wheel,podman -s /bin/bash <username>
+echo "<username> ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/<username>
+chmod 440 /etc/sudoers.d/<username>
+mkdir -p /home/<username>/.ssh
+echo "YOUR_SSH_PUBLIC_KEY" > /home/<username>/.ssh/authorized_keys
+chmod 700 /home/<username>/.ssh && chmod 600 /home/<username>/.ssh/authorized_keys
+chown -R <username>:<username> /home/<username>/.ssh
+loginctl enable-linger <username>
+
+# From the build machine — run Ansible to finish config
+make deploy VM_HOST=<vm-ip>
+```
+
+> Future builds with `DEVBOX_USER=yourname` eliminate the manual useradd step.
+> The next `make upgrade` will have the user baked in with skel pre-populated.
 
 ---
 
 ## Ongoing Upgrade Workflow
 
 ```bash
-# Rebuild image after changes to Containerfile
-make build-image
-
-# Push to registry
+# Modify Containerfile or config, then:
+make build-image DEVBOX_USER=yourname
 make push-image
-
-# Upgrade running devbox atomically
 make upgrade VM_HOST=<devbox-ip>
-# (this runs: ssh kevbot@<host> "sudo bootc upgrade && sudo reboot")
+# (runs: bootc upgrade + reboot on the devbox via SSH)
 
-# If something breaks after upgrade:
-ssh kevbot@<devbox-ip> "sudo bootc rollback && sudo reboot"
+# If something breaks:
+make rollback VM_HOST=<devbox-ip>
 ```
+
+bootc's 3-way `/etc` merge preserves local changes (users, SSH keys, sudoers rules)
+across upgrades. `/var` (home directories, data) is never touched by upgrades.
 
 ---
 
@@ -179,7 +288,7 @@ ssh kevbot@<devbox-ip> "sudo bootc rollback && sudo reboot"
 |------|--------|--------|
 | After initial deploy | Proxmox snapshot: `initial-deploy` | Clean baseline |
 | Before first `bootc upgrade` | Proxmox snapshot: `pre-upgrade-v<tag>` | External safety net |
-| Before major project work | Proxmox snapshot: `pre-<project>` | Quick restore if devbox state corrupts |
+| Before major project work | Proxmox snapshot: `pre-<project>` | Quick restore if state corrupts |
 | Routine | Proxmox scheduled backup (weekly) | Persistent coverage |
 
 bootc rollback handles upgrade failures; Proxmox snapshots handle everything else.

@@ -32,24 +32,44 @@ enforcement replacing unreliable `settings.json` deny rules.
 
 ---
 
+## Deployed VM — Current State
+
+| Property | Value |
+|----------|-------|
+| VMID | 199 |
+| Hostname | `fedora-claude-devbox` |
+| IP | `192.168.2.156` (set DHCP reservation for MAC `BC:24:11:16:86:68`) |
+| Proxmox host | `kevbot-pve` at `192.168.2.146` |
+| SSH user | `kevbot` (manually bootstrapped; will be baked in after next upgrade) |
+| bootc image | `ghcr.io/distantgeek/fedora-claude-devbox:latest` |
+| Status | Running — pending `make build-image DEVBOX_USER=kevbot && make push-image && make upgrade` |
+
+**Claude's dedicated SSH key for Proxmox host:** `~/.ssh/id_ed25519_claude_proxmox`
+Installed in `root@192.168.2.146:/root/.ssh/authorized_keys`. Use this key — not
+the personal `id_ed25519` — for all Claude-initiated SSH to the Proxmox host.
+
+---
+
 ## First Run Checklist
 
 When Claude Code first opens this project, complete these steps before any other work:
 
 - [ ] **Verify environment variables are loaded.** Run `echo $PROXMOX_HOST` — if empty,
-      the Proxmox credential file is not sourced. See [Proxmox API Access](#proxmox-api-access).
+      source `~/.config/proxmox/token`. See [Proxmox API Access](#proxmox-api-access).
+- [ ] **Confirm Claude's Proxmox SSH key exists:** `ls ~/.ssh/id_ed25519_claude_proxmox`
+      If missing, regenerate and reinstall on the Proxmox host (see Deployed VM section above).
 - [ ] **Confirm hook suite is wired.** Check `~/.claude/hooks/` exists and scripts are
       executable. If not: `chmod +x ~/.claude/hooks/pre_tool_use/*.py ~/.claude/hooks/post_tool_use/*.py`
-- [ ] **Check DEVBOX_INSTALLED.md** exists at repo root. If not, create it from the
-      template in the [DEVBOX_INSTALLED.md Convention](#devbox_installedmd-convention) section.
-- [ ] **Add UUID scrub pattern** to `hooks/lib/patterns.py` if not already present.
-      The Proxmox token secret is a UUID and must be covered by the scrubber.
+- [ ] **Confirm `proxmox_token` UUID pattern** exists in `hooks/lib/patterns.py`.
       See [Credential Scrubbing](#credential-scrubbing).
-- [ ] **Confirm `~/.config/proxmox/token` exists** on the operator machine and is
-      sourced in their shell profile. If missing, ask the user before any Proxmox work.
-- [ ] **Test Proxmox connectivity:**
-      `pvesh get /nodes --apitoken "$PROXMOX_USER!$PROXMOX_TOKEN_NAME=$PROXMOX_TOKEN_VALUE"`
-      Should return a node list without error.
+- [ ] **Test Proxmox API connectivity** (source token file first):
+      ```bash
+      set -a && source ~/.config/proxmox/token && set +a
+      curl -sk -H "Authorization: PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_NAME}=${PROXMOX_TOKEN_VALUE}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes" | python3 -m json.tool
+      ```
+- [ ] **Test Claude's SSH key to Proxmox:**
+      `ssh -i ~/.ssh/id_ed25519_claude_proxmox root@192.168.2.146 "pveversion"`
 - [ ] **Check git remote** is set correctly. Run `git remote -v` and flag anything unexpected.
 - [ ] **Review Project Roadmap** at the bottom of this file — do not start roadmap items
       without explicit instruction.
@@ -358,9 +378,9 @@ When a project needs a specific toolchain:
 
 | Target | What it does |
 |--------|-------------|
-| `make build-image` | Build bootc image from `build/Containerfile` |
+| `make build-image [DEVBOX_USER=name]` | Build bootc image; defaults to `devbox` user |
 | `make push-image` | Push to GHCR |
-| `make build-disk-image` | Convert to raw disk via bootc-image-builder for Proxmox |
+| `make build-disk-image` | Convert to raw disk via bootc-image-builder; output at `output/image/disk.raw` |
 | `make deploy VM_HOST=<ip>` | Thin Ansible `configure.yml` against running VM |
 | `make upgrade VM_HOST=<ip>` | `bootc upgrade` + reboot on target |
 | `make rollback VM_HOST=<ip>` | `bootc rollback` + reboot on target |
@@ -368,6 +388,15 @@ When a project needs a specific toolchain:
 | `make enable-kubernetes VM_HOST=<ip>` | Optional k8s layer (k3s or KIND) |
 | `make validate VM_HOST=<ip>` | Ansible validation playbook |
 | `make test-connection VM_HOST=<ip>` | SSH test + bootc status |
+
+**Personal build command (bakes in kevbot user):**
+```bash
+make build-image DEVBOX_USER=kevbot && make push-image && make upgrade VM_HOST=192.168.2.156
+```
+
+**Disk import — PVE 9 requires `qm disk import`, not `qm importdisk`:**
+`qm importdisk` silently writes the VM config without creating the LVM volume in PVE 9.
+Always use `qm disk import <vmid> <file> <storage>` and verify with `lvs pve | grep vm-<vmid>`.
 
 ### Kubernetes — Optional, Not Default
 

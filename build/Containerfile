@@ -32,14 +32,17 @@ RUN dnf install -y \
     buildah \
     skopeo \
     podman-compose \
-    # Python (for hooks and uv)
+    # Python (for hooks and uv; libselinux required by Ansible)
     python3 \
     python3-pip \
+    python3-libselinux \
     # System services
     qemu-guest-agent \
     firewalld \
     # direnv
     direnv \
+    # Ansible (control node for homelab management)
+    ansible-core \
     # Misc tools
     tree \
     htop \
@@ -202,3 +205,14 @@ Update on every install outside the base bootc image.
 | (image) | mise | latest | curl installer | base | Unified version manager |
 | (image) | claude | latest | npm global | base | Claude Code CLI |
 EOF
+
+# ---------------------------------------------------------------------------
+# Primary user — configurable at build time, defaults to "devbox"
+# Override: podman build --build-arg DEVBOX_USER=yourname
+# SSH keys and personal config are applied post-deploy by Ansible.
+# Must run after all /etc/skel setup so useradd -m copies the full skel.
+# ---------------------------------------------------------------------------
+ARG DEVBOX_USER=devbox
+RUN useradd -m -G wheel,podman -s /bin/bash ${DEVBOX_USER} \
+    && echo "${DEVBOX_USER} ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/${DEVBOX_USER} \
+    && chmod 440 /etc/sudoers.d/${DEVBOX_USER}

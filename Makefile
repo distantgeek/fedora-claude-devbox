@@ -9,6 +9,7 @@ VM_HOST        ?= $(error VM_HOST is required for this target)
 VM_USER        ?= kevbot
 SSH_KEY        ?= ~/.ssh/id_ed25519
 ANSIBLE_OPTS   ?=
+DEVBOX_USER    ?= devbox
 
 # Kubernetes optional gate
 ENABLE_KUBERNETES ?= false
@@ -49,10 +50,11 @@ help:
 # ---------------------------------------------------------------------------
 
 build-image:
-	@echo ">>> Building $(FULL_IMAGE)"
+	@echo ">>> Building $(FULL_IMAGE) (DEVBOX_USER=$(DEVBOX_USER))"
 	podman build \
 		--tag $(FULL_IMAGE) \
 		--tag $(REGISTRY)/$(IMAGE_NAME):$$(git rev-parse --short HEAD) \
+		--build-arg DEVBOX_USER=$(DEVBOX_USER) \
 		-f build/Containerfile \
 		.
 
@@ -149,7 +151,7 @@ build-disk-image:
 		--type raw \
 		--local \
 		$(FULL_IMAGE)
-	@echo ">>> Raw disk image at output/disk.raw"
+	@echo ">>> Raw disk image at output/image/disk.raw"
 	@echo ">>> Import to Proxmox:"
-	@echo "    scp output/disk.raw root@<proxmox>:/tmp/"
+	@echo "    scp output/image/disk.raw root@<proxmox>:/tmp/"
 	@echo "    ssh root@<proxmox> qm importdisk <VMID> /tmp/disk.raw <storage-pool> --format raw"
