@@ -56,6 +56,14 @@ RUN systemctl enable qemu-guest-agent \
     && systemctl enable podman.socket
 
 # ---------------------------------------------------------------------------
+# bootc install configuration — explicitly declare root filesystem type.
+# Required by bootc-image-builder; do not rely on base image to provide it.
+# ---------------------------------------------------------------------------
+RUN mkdir -p /usr/lib/bootc/install && \
+    printf '[install.filesystem.root]\ntype = "xfs"\n' \
+    > /usr/lib/bootc/install/10-fedora-claude-devbox.toml
+
+# ---------------------------------------------------------------------------
 # fnm (Fast Node Manager)
 # ---------------------------------------------------------------------------
 RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- \
