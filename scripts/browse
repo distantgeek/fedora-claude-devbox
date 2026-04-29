@@ -1,0 +1,16 @@
+#!/bin/bash
+# Browse - Web research with Playwright container
+# Usage: browse <url> [html|screenshot]
+# Requires: playwright container running (podman start playwright)
+
+OUTPUT_DIR="/var/home/kevbot/browse-output"
+mkdir -p "$OUTPUT_DIR"
+URL="${1:-https://example.com}"
+MODE="${2:-html}"
+
+if [ "$MODE" = "screenshot" ]; then
+    podman exec playwright node /home/pwuser/output/browse.js "$URL" screenshot 2>/dev/null
+    ls -lh "$OUTPUT_DIR/screenshot.png" 2>/dev/null && echo "Screenshot: $OUTPUT_DIR/screenshot.png"
+else
+    podman exec playwright node /home/pwuser/output/browse.js "$URL" html 2>/dev/null
+fi
