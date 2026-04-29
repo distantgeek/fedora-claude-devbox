@@ -9,13 +9,24 @@
 *_ed25519
 *_ecdsa
 *_dsa
-credentials
-secrets
+*.pub
+credentials/
+secrets/
 token
 vault_pass*
+*.secret
+*.credential
 
 # Proxmox token (handled by ~/.config/proxmox/token — not in repo)
 config/proxmox/
+~/.config/proxmox/
+
+# Claude Code / Opencode / Qwen Code local settings — not portable
+.claude/settings.json
+.claude/context/
+.openode/
+.qwen/
+.mcp/
 
 # Ansible runtime artifacts
 ansible/deployment.log
@@ -31,6 +42,7 @@ output/
 output/disk.raw
 *.raw
 *.qcow2
+*.img
 
 # OS / editor
 .DS_Store
@@ -49,12 +61,23 @@ __pycache__/
 *.pyo
 .pytest_cache/
 .mypy_cache/
+.venv/
+venv/
 
 # Node
 node_modules/
+.npm-global/
+.npm/
 
 # Rust
 target/
 
 # Logs
 *.log
+logs/
+
+# Playwright / Puppeteer browser caches
+.cache/puppeteer/
+.cache/ms-playwright/
+.local/bin/browse*
+.local/bin/playwright*
