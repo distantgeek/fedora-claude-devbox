@@ -115,7 +115,56 @@ RUN HOME=/tmp /usr/local/share/fnm/fnm exec --using=lts-latest \
     npm install -g @anthropic-ai/claude-code
 
 # ---------------------------------------------------------------------------
-# Hook suite — deployed to /etc/claude/hooks/
+# SAST tools — system-wide so the sast_scan.py hook works for all users
+# ---------------------------------------------------------------------------
+# Python SAST: bandit (OWASP/CWE per-file) and pip-audit (dependency CVEs).
+# UV_TOOL_BIN_DIR puts shim scripts in /usr/local/bin (in PATH for all users).
+# UV_TOOL_DIR is set inline (not ENV) so it doesn't override user defaults at runtime.
+RUN UV_TOOL_DIR=/usr/local/share/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin \
+        uv tool install bandit \
+    && UV_TOOL_DIR=/usr/local/share/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin \
+        uv tool install pip-audit
+
+# Node supply chain screening — used by the npm install warning in enforce_permissions.py
+RUN HOME=/tmp /usr/local/share/fnm/fnm exec --using=lts-latest \
+    npm install -g @socketsecurity/cli
+
+# cargo-audit — pre-built musl binary for Rust advisory scanning (RustSec DB).
+# Falls back gracefully if the release format changes; sast_scan.py provides
+# an install hint when the binary is absent.
+RUN python3 - << 'PYEOF'
+import json, urllib.request, tarfile, io, os, sys
+try:
+    req = urllib.request.Request(
+        "https://api.github.com/repos/rustsec/rustsec/releases?per_page=30",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "fedora-claude-devbox-build"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        releases = json.load(r)
+    url = next(
+        a["browser_download_url"]
+        for rel in releases
+        if rel["tag_name"].startswith("cargo-audit/")
+        for a in rel.get("assets", [])
+        if "x86_64-unknown-linux-musl" in a["name"] and a["name"].endswith(".tar.gz")
+    )
+    with urllib.request.urlopen(url, timeout=120) as r:
+        data = r.read()
+    with tarfile.open(fileobj=io.BytesIO(data)) as tf:
+        member = next(m for m in tf.getmembers() if os.path.basename(m.name) == "cargo-audit")
+        with tf.extractfile(member) as f:
+            dest = "/usr/local/bin/cargo-audit"
+            open(dest, "wb").write(f.read())
+        os.chmod(dest, 0o755)
+    print(f"cargo-audit installed to {dest}")
+except StopIteration:
+    print("WARNING: cargo-audit musl binary not found in releases; install post-deploy: cargo install cargo-audit", file=sys.stderr)
+except Exception as e:
+    print(f"WARNING: cargo-audit download failed ({e}); install post-deploy: cargo install cargo-audit", file=sys.stderr)
+PYEOF
+
+# ---------------------------------------------------------------------------
+# Hook suite — deployed to /etc/skel/.claude/hooks/
 # Deploy to skel so it propagates to new user home directories
 # ---------------------------------------------------------------------------
 COPY hooks/ /etc/skel/.claude/hooks/
@@ -150,16 +199,33 @@ RUN mkdir -p /etc/skel/.config/containers
 COPY config/containers/ /etc/skel/.config/containers/
 
 # ---------------------------------------------------------------------------
+# OpenCode TUI configuration
+# ---------------------------------------------------------------------------
+RUN mkdir -p /etc/skel/.config/opencode
+COPY config/opencode.jsonc /etc/skel/.config/opencode/opencode.jsonc
+COPY config/opencode-settings.json /etc/skel/.config/opencode/settings.json
+
+# ---------------------------------------------------------------------------
+# npm defaults — redirect personal globals to ~/.npm-global (no sudo needed)
+# audit=true, fund=false, prefer-exact=true match the devbox security posture
+# ---------------------------------------------------------------------------
+RUN printf 'prefix=~/.npm-global\naudit=true\nfund=false\nprefer-exact=true\n' \
+    > /etc/skel/.npmrc
+
+# ---------------------------------------------------------------------------
 # Shell integrations for /etc/skel/.bashrc
 # ---------------------------------------------------------------------------
 RUN cat >> /etc/skel/.bashrc << 'EOF'
 
 # --- fedora-claude-devbox shell integrations ---
 
-# fnm
+# fnm (system node + Claude Code CLI)
 export FNM_DIR="/usr/local/share/fnm"
 export PATH="$FNM_DIR:$PATH"
 eval "$(fnm env --use-on-cd)"
+
+# npm personal globals (prefix=~/.npm-global set in ~/.npmrc)
+export PATH="$HOME/.npm-global/bin:$PATH"
 
 # mise
 eval "$(mise activate bash)"
@@ -207,6 +273,10 @@ Update on every install outside the base bootc image.
 | (image) | rustup | latest | curl installer | base | Rust toolchain manager |
 | (image) | mise | latest | curl installer | base | Unified version manager |
 | (image) | claude | latest | npm global | base | Claude Code CLI |
+| (image) | bandit | latest | uv tool install | base | Python SAST — auto-runs via sast_scan hook on every .py edit |
+| (image) | pip-audit | latest | uv tool install | base | Python dependency CVE scanner — auto-runs via sast_scan hook |
+| (image) | cargo-audit | latest | binary download | base | Rust RustSec advisory scanner — auto-runs via sast_scan hook |
+| (image) | @socketsecurity/cli | latest | npm global | base | npm supply chain screening — prompted by enforce_permissions hook |
 EOF
 
 # ---------------------------------------------------------------------------

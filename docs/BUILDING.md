@@ -90,12 +90,13 @@ Layers are ordered to maximize cache hits during iterative development:
 | 7 | rustup binary | rustup version change |
 | 8 | mise | mise version change |
 | 9 | Claude Code CLI | claude-code version change |
-| 10 | COPY hooks/ → skel + chmod | Any hook script change |
-| 11 | COPY config/settings.json + CLAUDE.md → skel | Settings or CLAUDE.md change |
-| 12 | COPY config/agents/ → skel | Any agent definition change |
-| 13 | COPY config/rules/ → skel | Any rules file change |
-| 14 | COPY config/containers/ → skel; shell integrations; DEVBOX_INSTALLED.md | Infra config change |
-| 15 | DEVBOX_USER creation | DEVBOX_USER arg change |
+| 10 | SAST tools: bandit, pip-audit (uv tool); @socketsecurity/cli (npm); cargo-audit (binary) | Tool version changes |
+| 11 | COPY hooks/ → skel + chmod | Any hook script change |
+| 12 | COPY config/settings.json + CLAUDE.md → skel | Settings or CLAUDE.md change |
+| 13 | COPY config/agents/ → skel | Any agent definition change |
+| 14 | COPY config/rules/ → skel | Any rules file change |
+| 15 | COPY config/containers/ → skel; OpenCode config → skel; .npmrc → skel; shell integrations; DEVBOX_INSTALLED.md | Infra config change |
+| 16 | DEVBOX_USER creation | DEVBOX_USER arg change |
 
 Tool installer layers (5–9) are the most network-intensive. Changing a hook script
 only rebuilds layers 10+, which is fast.

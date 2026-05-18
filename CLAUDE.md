@@ -416,18 +416,19 @@ Do not include Kubernetes tooling in `build/Containerfile`.
 1. `quay.io/fedora/fedora-bootc:43`
 2. System packages (git, podman, buildah, skopeo, tmux, firewalld, python3, etc.)
 3. `qemu-guest-agent` + systemd enable
-4. `fnm` → Node LTS → Claude Code CLI
-5. `uv`
-6. `rustup` (no default toolchain)
-7. `mise`
-8. `direnv`
-9. Hook suite → `/etc/skel/.claude/hooks/`
-10. `settings.json` + `CLAUDE.md` → `/etc/skel/.claude/`
-11. Agents → `/etc/skel/.claude/agents/`
-12. Rules → `/etc/skel/.claude/rules/`
-13. `DEVBOX_INSTALLED.md` template → `/etc/skel/`
-14. Shell integrations → `/etc/skel/.bashrc`
-15. Rootless Podman config → `/etc/skel/.config/containers/`
+4. bootc filesystem config
+5. `fnm` → Node LTS
+6. `uv`
+7. `rustup` (no default toolchain)
+8. `mise`
+9. Claude Code CLI (`npm global` via fnm)
+10. SAST tools: `bandit`, `pip-audit` (uv tool); `@socketsecurity/cli` (npm); `cargo-audit` (binary)
+11. Hook suite → `/etc/skel/.claude/hooks/`
+12. `settings.json` + `CLAUDE.md` → `/etc/skel/.claude/`
+13. Agents → `/etc/skel/.claude/agents/`
+14. Rules → `/etc/skel/.claude/rules/`
+15. Rootless Podman config + OpenCode config + `.npmrc` + shell integrations + `DEVBOX_INSTALLED.md` → `/etc/skel/`
+16. DEVBOX_USER creation
 
 ---
 
