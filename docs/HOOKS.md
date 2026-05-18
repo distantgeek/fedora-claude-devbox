@@ -19,7 +19,8 @@ hooks/user_prompt_submit/project_audit_trigger.py   ← injects session-start au
 Tool call requested
         │
         ▼
-hooks/pre_tool_use/enforce_permissions.py           ← blocks before execution
+hooks/pre_tool_use/enforce_permissions.py           ← blocks dangerous ops
+hooks/pre_tool_use/pre_commit_docs_check.py         ← blocks commit/push; docs checklist
         │ (allowed)
         ▼
 Tool executes
@@ -54,7 +55,8 @@ type maps to an ordered list of matchers and commands:
     { "matcher": ".*", "hooks": [{ "type": "command", "command": "python3 ~/.claude/hooks/user_prompt_submit/project_audit_trigger.py", "timeout": 10 }] }
   ],
   "PreToolUse": [
-    { "matcher": ".*", "hooks": [{ "type": "command", "command": "python3 ~/.claude/hooks/pre_tool_use/enforce_permissions.py", "timeout": 10 }] }
+    { "matcher": ".*",  "hooks": [{ "type": "command", "command": "python3 ~/.claude/hooks/pre_tool_use/enforce_permissions.py",    "timeout": 10 }] },
+    { "matcher": "Bash", "hooks": [{ "type": "command", "command": "python3 ~/.claude/hooks/pre_tool_use/pre_commit_docs_check.py", "timeout": 10 }] }
   ],
   "PostToolUse": [
     { "matcher": ".*",              "hooks": [{ "type": "command", "command": "python3 ~/.claude/hooks/post_tool_use/scrub_output.py", "timeout": 10 }] },
@@ -62,6 +64,9 @@ type maps to an ordered list of matchers and commands:
   ]
 }
 ```
+
+PreToolUse hooks run in declaration order. `enforce_permissions.py` runs first (all
+tools); `pre_commit_docs_check.py` runs second (Bash only, on git commit/push).
 
 PostToolUse hooks run in order: `scrub_output.py` first (all tools), then
 `sast_scan.py` (Write/Edit/MultiEdit only). The 90-second timeout on `sast_scan.py`
@@ -136,6 +141,45 @@ The following path patterns are blocked for all file operations (Read, Write, Ed
 *_rsa  *_ed25519  *_ecdsa  *_dsa
 credentials  secrets
 ```
+
+---
+
+## PreToolUse Hook: `pre_commit_docs_check.py`
+
+**Location:** `hooks/pre_tool_use/pre_commit_docs_check.py`
+
+Fires once per session on the first `git commit` or `git push`. Blocks with a
+targeted documentation checklist so Claude verifies and updates context files before
+the commit lands.
+
+### How It Works
+
+1. Detects any `git commit` or `git push` Bash command
+2. Checks a session marker at `/tmp/claude_commit_markers/docs_check_<ppid>`
+3. If the marker already exists (check already done this session): allows immediately
+4. If not: sets the marker, then blocks with the checklist
+5. Claude updates any stale docs, stages them, and retries the commit — the marker
+   now exists so the retry is allowed
+
+The marker is set **before** the block fires. This ensures the retry is always
+allowed even if Claude does not update any docs (the reminder has been delivered).
+
+### Targeted Checklist Logic
+
+The hook inspects staged files (`git diff --cached --name-only`) to build a
+relevant checklist:
+
+| Staged path | Added checklist item |
+|-------------|---------------------|
+| Any | README.md, CLAUDE.md, DEVBOX_INSTALLED.md, staged diff review |
+| `hooks/**` | docs/HOOKS.md |
+| `build/**`, `Makefile` | docs/BUILDING.md |
+| `config/**`, `ansible/**` | README → Security Model / Quick Start |
+
+### Skipped Cases
+
+- `git commit --amend --no-edit` — rewrites metadata only, no new content
+- Any commit/push after the session marker is set
 
 ---
 
@@ -317,6 +361,7 @@ The Ansible `claude-config` role also deploys hooks as part of `make deploy`.
 
 ```
 hooks/pre_tool_use/enforce_permissions.py         — 0755 (executable)
+hooks/pre_tool_use/pre_commit_docs_check.py       — 0755 (executable)
 hooks/post_tool_use/scrub_output.py               — 0755 (executable)
 hooks/post_tool_use/sast_scan.py                  — 0755 (executable)
 hooks/user_prompt_submit/project_audit_trigger.py — 0755 (executable)

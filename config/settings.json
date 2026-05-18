@@ -17,7 +17,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /var/home/kevbot/.claude/hooks/pre_tool_use/enforce_permissions.py",
+            "command": "python3 ~/.claude/hooks/pre_tool_use/enforce_permissions.py",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/pre_tool_use/pre_commit_docs_check.py",
             "timeout": 10
           }
         ]
@@ -29,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /var/home/kevbot/.claude/hooks/post_tool_use/scrub_output.py",
+            "command": "python3 ~/.claude/hooks/post_tool_use/scrub_output.py",
             "timeout": 10
           }
         ]
@@ -39,7 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /var/home/kevbot/.claude/hooks/post_tool_use/sast_scan.py",
+            "command": "python3 ~/.claude/hooks/post_tool_use/sast_scan.py",
             "timeout": 90
           }
         ]
@@ -51,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /var/home/kevbot/.claude/hooks/user_prompt_submit/project_audit_trigger.py",
+            "command": "python3 ~/.claude/hooks/user_prompt_submit/project_audit_trigger.py",
             "timeout": 10
           }
         ]
