@@ -5,9 +5,11 @@ PostToolUse hook — SAST scan after Write/Edit operations on code files.
 Runs language-appropriate static analysis and appends findings to tool
 output so Claude sees them immediately and can remediate before commit.
 
-  Python  → bandit  (OWASP-aligned, CWE-mapped)       per file
-  Rust    → cargo audit (advisory DB)                  once per session per project
-  TS/JS   → npm audit (--audit-level=high)             once per session per project
+  Python  → bandit      (OWASP-aligned, CWE-mapped)       per file
+            pip-audit   (dependency CVE scan)              once per session per project
+  Rust    → cargo audit (advisory DB)                      once per session per project
+  TS/JS   → npm audit   (--audit-level=high)               once per session per project
+            npm audit signatures (provenance)              once per session per project
 
 When a required tool is not installed, emits an install suggestion rather
 than failing silently.
@@ -38,6 +40,11 @@ INSTALL_HINTS = {
         "  Install (project dev dep): uv add --dev bandit\n"
         "  Install (global):          uv tool install bandit\n"
         "  One-off (no install):      uvx bandit <file>"
+    ),
+    'pip-audit': (
+        "pip-audit scans Python dependencies for known CVEs (complements bandit).\n"
+        "  Install (global, one-time): uv tool install pip-audit\n"
+        "  One-off (no install):       uvx pip-audit"
     ),
     'cargo-audit': (
         "cargo-audit scans Rust dependencies against the RustSec advisory database.\n"
@@ -145,6 +152,23 @@ def main():
 
     if language == 'python':
         findings, hint = run_bandit(filepath)
+
+        # Dependency CVE scan — runs once per session per project
+        root = find_project_root(
+            filepath, ['pyproject.toml', 'requirements.txt', 'setup.py', 'setup.cfg']
+        )
+        if root:
+            dep_findings, dep_hint = run_once(
+                f'pip_audit_{sk}_{abs(hash(root))}',
+                ['pip-audit', '--output', 'text', '--skip-editable'],
+                root,
+                install_hint=INSTALL_HINTS['pip-audit'],
+            )
+            if dep_findings:
+                dep_block = f'\n\n[pip-audit: dependency CVEs]\n{dep_findings}'
+                findings = (findings + dep_block).strip()
+            elif dep_hint and not hint:
+                hint = dep_hint
 
     elif language == 'rust':
         root = find_project_root(filepath, ['Cargo.lock', 'Cargo.toml'])
