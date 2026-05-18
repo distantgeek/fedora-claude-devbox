@@ -1,5 +1,24 @@
 {
-  "_comment": "Opencode settings - multi-platform devbox config",
+  "_comment": "Opencode settings - multi-platform devbox config. MCP servers and agents configured in opencode.jsonc.",
+  "mcp": {
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "-y", "@playwright/mcp@latest"],
+      "enabled": true
+    },
+    "memory": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-memory"]
+    },
+    "sequential-thinking": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-sequential-thinking"]
+    },
+    "context7": {
+      "type": "local",
+      "command": ["npx", "-y", "@upstash/context7-mcp@latest"]
+    }
+  },
   "permissions": {
     "allow": [
       "Bash(git status:*)",
@@ -120,7 +139,6 @@
       "Bash(rm ./*/*:*)"
     ],
     "deny": [
-      "_comment_deny": "These deny rules are NOT reliably enforced. Enforcement is via hooks/pre_tool_use/enforce_permissions.py",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(sudo rm -rf /:*)",
