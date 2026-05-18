@@ -90,7 +90,11 @@ Layers are ordered to maximize cache hits during iterative development:
 | 7 | rustup binary | rustup version change |
 | 8 | mise | mise version change |
 | 9 | Claude Code CLI | claude-code version change |
-| 10–14 | COPY hooks, config, skel | Any file change |
+| 10 | COPY hooks/ → skel + chmod | Any hook script change |
+| 11 | COPY config/settings.json + CLAUDE.md → skel | Settings or CLAUDE.md change |
+| 12 | COPY config/agents/ → skel | Any agent definition change |
+| 13 | COPY config/rules/ → skel | Any rules file change |
+| 14 | COPY config/containers/ → skel; shell integrations; DEVBOX_INSTALLED.md | Infra config change |
 | 15 | DEVBOX_USER creation | DEVBOX_USER arg change |
 
 Tool installer layers (5–9) are the most network-intensive. Changing a hook script

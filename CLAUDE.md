@@ -59,7 +59,12 @@ When Claude Code first opens this project, complete these steps before any other
 - [ ] **Confirm Claude's Proxmox SSH key exists:** `ls ~/.ssh/id_ed25519_claude_proxmox`
       If missing, regenerate and reinstall on the Proxmox host (see Deployed VM section above).
 - [ ] **Confirm hook suite is wired.** Check `~/.claude/hooks/` exists and scripts are
-      executable. If not: `chmod +x ~/.claude/hooks/pre_tool_use/*.py ~/.claude/hooks/post_tool_use/*.py`
+      executable. If not:
+      ```bash
+      chmod +x ~/.claude/hooks/pre_tool_use/*.py \
+               ~/.claude/hooks/post_tool_use/*.py \
+               ~/.claude/hooks/user_prompt_submit/*.py
+      ```
 - [ ] **Confirm `proxmox_token` UUID pattern** exists in `hooks/lib/patterns.py`.
       See [Credential Scrubbing](#credential-scrubbing).
 - [ ] **Test Proxmox API connectivity** (source token file first):
@@ -408,7 +413,7 @@ Do not include Kubernetes tooling in `build/Containerfile`.
 
 ### Containerfile Layer Order
 
-1. `quay.io/fedora/fedora-bootc:41`
+1. `quay.io/fedora/fedora-bootc:43`
 2. System packages (git, podman, buildah, skopeo, tmux, firewalld, python3, etc.)
 3. `qemu-guest-agent` + systemd enable
 4. `fnm` → Node LTS → Claude Code CLI
@@ -418,9 +423,11 @@ Do not include Kubernetes tooling in `build/Containerfile`.
 8. `direnv`
 9. Hook suite → `/etc/skel/.claude/hooks/`
 10. `settings.json` + `CLAUDE.md` → `/etc/skel/.claude/`
-11. `DEVBOX_INSTALLED.md` template → `/etc/skel/`
-12. Shell integrations → `/etc/skel/.bashrc`
-13. Rootless Podman config → `/etc/skel/.config/containers/`
+11. Agents → `/etc/skel/.claude/agents/`
+12. Rules → `/etc/skel/.claude/rules/`
+13. `DEVBOX_INSTALLED.md` template → `/etc/skel/`
+14. Shell integrations → `/etc/skel/.bashrc`
+15. Rootless Podman config → `/etc/skel/.config/containers/`
 
 ---
 

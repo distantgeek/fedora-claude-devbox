@@ -45,7 +45,9 @@ that project; everything else is a ground-up rewrite for Fedora/bootc/Podman/Pro
 | Versions | mise (unified version manager for Node/Python/Ruby/Go) |
 | Automation | ansible-core (system-wide, all users) |
 | AI | Claude Code CLI (`claude`) |
-| Security | PreToolUse + PostToolUse hook suite |
+| Security hooks | PreToolUse (permissions), PostToolUse (scrub + SAST), UserPromptSubmit (audit trigger) |
+| Agents | 12 specialist subagents: security-reviewer, tdd-guide, docs-lookup, python-reviewer, rust-reviewer, and more |
+| Rules | OWASP / CIS Controls v8 / NIST SP 800-53 security framework + TDD + git workflow |
 
 All version manager binaries (`uv`, `rustup`, `mise`) are installed system-wide to
 `/usr/local/bin`. Language toolchains are installed per-user at runtime.
@@ -59,17 +61,24 @@ fedora-claude-devbox/
 ├── build/
 │   └── Containerfile          # bootc image definition
 ├── config/
-│   ├── settings.json          # Claude Code behavioral guidance (not a security boundary)
+│   ├── settings.json          # Claude Code settings: hook wiring, MCP servers, permissions
 │   ├── env.example            # Environment variables template
 │   ├── mcp-servers.template.json  # MCP server config reference
+│   ├── agents/                # 12 specialist Claude Code subagents (baked into image skel)
+│   ├── rules/                 # Security framework rules: OWASP/CIS/NIST + TDD + git
+│   │   ├── security-frameworks.md   # Mandatory CIS/NIST/OWASP controls
+│   │   └── ecc/common/              # ECC common rules: security, testing, git-workflow
 │   └── containers/            # Rootless Podman config skeleton (baked into image skel)
 ├── hooks/
 │   ├── pre_tool_use/
-│   │   └── enforce_permissions.py   # Blocks dangerous operations before execution
+│   │   └── enforce_permissions.py        # Blocks dangerous ops; warns on unsafe npm install
 │   ├── post_tool_use/
-│   │   └── scrub_output.py          # Scrubs credentials from tool output
+│   │   ├── scrub_output.py               # Scrubs credentials from tool output
+│   │   └── sast_scan.py                  # SAST scan on code file edits (bandit/pip-audit/cargo-audit/npm audit)
+│   ├── user_prompt_submit/
+│   │   └── project_audit_trigger.py      # Triggers code+security review at session start
 │   └── lib/
-│       └── patterns.py              # Shared patterns, scrub functions, allowlists
+│       └── patterns.py                   # Shared patterns, scrub functions, allowlists
 ├── ansible/
 │   ├── ansible.cfg
 │   ├── playbooks/
@@ -232,29 +241,45 @@ Take a Proxmox snapshot before the first `bootc upgrade` — see `docs/PROXMOX_S
 See `docs/HOOKS.md` for the full hook architecture. Short version:
 
 ```
+User prompt submitted
+        │
+        ▼
+project_audit_trigger.py    ← fires once per session in a git repo;
+        │                      injects mandate to run code+security review
+        ▼
 Tool call requested
         │
         ▼
-hooks/pre_tool_use/enforce_permissions.py   ← blocks before execution
+enforce_permissions.py      ← blocks before execution
         │ (allowed)
         ▼
 Tool executes
         │
         ▼
-hooks/post_tool_use/scrub_output.py         ← scrubs before context injection
+scrub_output.py             ← scrubs credentials before context injection
+sast_scan.py                ← appends SAST findings on code file writes
         │
         ▼
 Output enters Claude Code context window
 ```
 
 **What hooks enforce:**
+- Session-start audit of code and security posture before any work begins
 - Sensitive path reads/writes blocked (`~/.ssh/`, `~/.config/proxmox/`, `.env`, `*.key`)
 - SSH/SCP restricted to homelab ranges (`192.168.x.x`, `10.x.x.x`) and known registries
 - Force push to `main`/`master` blocked
 - `rm -rf` outside project directories blocked
 - Credential file exposure via `cat`/`echo` blocked
 - Full env dumps warned and scrubbed
-- All Proxmox token UUIDs, API keys, SSH keys, JWTs scrubbed from tool output
+- Proxmox token UUIDs, API keys, SSH keys, JWTs scrubbed from all tool output
+- New `npm install <pkg>` intercepted with a prompt to use `socket npm install` instead
+- `bandit` + `pip-audit` run on Python file edits (code + dependency CVEs)
+- `cargo audit` run on first Rust file edit per session
+- `npm audit` + `npm audit signatures` run on first JS/TS file edit per session
+
+**Security framework alignment:** `config/rules/security-frameworks.md` mandates
+OWASP Top 10, CIS Controls v8 (IG1/IG2 + container hardening), and NIST SP 800-53
+Rev 5 controls — applied automatically via rules loaded every session.
 
 `settings.json` is behavioral guidance only. VM isolation via Proxmox is the outer
 security boundary.
