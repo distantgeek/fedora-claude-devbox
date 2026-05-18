@@ -121,10 +121,13 @@ RUN HOME=/tmp /usr/local/share/fnm/fnm exec --using=lts-latest \
 COPY hooks/ /etc/skel/.claude/hooks/
 COPY config/settings.json /etc/skel/.claude/settings.json
 COPY CLAUDE.md /etc/skel/.claude/CLAUDE.md
+COPY config/agents/ /etc/skel/.claude/agents/
+COPY config/rules/ /etc/skel/.claude/rules/
 
 # Make hooks executable
 RUN chmod +x /etc/skel/.claude/hooks/pre_tool_use/*.py \
-    && chmod +x /etc/skel/.claude/hooks/post_tool_use/*.py
+    && chmod +x /etc/skel/.claude/hooks/post_tool_use/*.py \
+    && chmod +x /etc/skel/.claude/hooks/user_prompt_submit/*.py
 
 # ---------------------------------------------------------------------------
 # firewalld baseline — restrict to homelab ranges

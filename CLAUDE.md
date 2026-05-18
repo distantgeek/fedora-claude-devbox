@@ -23,7 +23,7 @@ enforcement replacing unreliable `settings.json` deny rules.
 | Repo | Description |
 |------|-------------|
 | `soc-deploy` | Fedora Server SOC stack — Elastic, TheHive, MISP, Shuffle, Velociraptor |
-| `ADHD-Claw` | Hermes Agent ADHD executive function assistant |
+| `adhd-hermes` | Hermes Agent ADHD executive function appliance (bootc) |
 | `llm-selective-memory` | Obsidian vault privacy-tiered LLM context injection |
 | `ogoa-character-builder` | Tauri/React OGoA character sheet desktop app |
 | `harrmony` | Music request manager for Arr ecosystem (Node/Express) |
@@ -85,7 +85,7 @@ When Claude Code first opens this project, complete these steps before any other
 | Proxmox host | Primary hypervisor | Proxmox VE | Hosts this devbox VM |
 | TrueNAS | NAS + Docker stacks | TrueNAS Scale | Dockge, NPM, Arr stack, Jellyfin, etc. |
 | Fedora Server | SOC stack | Fedora Server 43 | soc-deploy, rootful Podman Quadlets |
-| ThinkCentre | ADHD assistant | Fedora CoreOS (bootc) | ADHD-Claw / Hermes Agent target |
+| ThinkCentre | ADHD assistant | CentOS Stream 10 (bootc) | adhd-hermes (Hermes Agent appliance) |
 | FX-8 / GTX 1060 6GB | Auxiliary inference | Fedora | faster-whisper STT, local LLM compression |
 | Aurora-nvidia | Daily driver desktop | Aurora (Universal Blue) | NVIDIA GPU, primary dev workstation |
 | Laptop | Mobile dev | (varies) | SSH client to this devbox |

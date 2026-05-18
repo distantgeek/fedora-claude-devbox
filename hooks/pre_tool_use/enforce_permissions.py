@@ -32,6 +32,9 @@ RM_RF_OUTSIDE_PROJECT = re.compile(r"rm\s+-rf?\s+(?!\./)(?!/home/[^/]+/(?:repos?
 SUDO_CREDENTIAL_EXPOSURE = re.compile(r"(?:cat|less|more|head|tail|echo|print)\s+.*(?:\.env|\.key|\.pem|password|secret|credentials)")
 ENV_DUMP = re.compile(r"^\s*(?:env|printenv|export)\s*$")
 
+# Matches: npm install pkg, npm i pkg, npm add pkg — but not bare `npm install` (lockfile restore)
+NPM_ADD_PACKAGE = re.compile(r"npm\s+(?:install|i|add)\s+(?!.*--save-dev\s*$)(?!-{0,2}\s*$)(?!ci\b)(\S+)")
+
 
 def check_bash(command: str) -> dict:
     """Validate bash commands before execution."""
@@ -62,6 +65,18 @@ def check_bash(command: str) -> dict:
     # curl/wget to external hosts (warn but allow — scrubber handles output)
     if re.search(r"(?:curl|wget)\s+", command):
         return warn("Network request detected. Output will be scrubbed for sensitive data.")
+
+    # New npm package installs — prompt for Socket screening
+    npm_match = NPM_ADD_PACKAGE.search(command)
+    if npm_match:
+        pkg = npm_match.group(1)
+        return warn(
+            f"npm install detected for '{pkg}'. "
+            "Screen with Socket before installing: "
+            f"`socket npm install {pkg}` "
+            "(catches supply chain attacks, typosquatting, and behavioral anomalies "
+            "that npm audit misses). Proceeding with original command."
+        )
 
     return allow()
 
