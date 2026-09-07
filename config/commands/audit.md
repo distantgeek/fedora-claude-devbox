@@ -1,0 +1,1 @@
+Run a session-start audit of the current project. Spawn the `security-auditor` subagent to scan for vulnerabilities, hardcoded secrets, and dependency CVEs, then spawn the `code-reviewer` subagent to assess code quality and test coverage. Report all findings before proceeding with any other work.

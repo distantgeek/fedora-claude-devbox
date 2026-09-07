@@ -1,0 +1,9 @@
+---
+target_user: devbox
+target_user_home: "/home/{{ target_user }}"
+
+# Agent container image (opencode + framework) — pulled and run rootless on the VM
+agent_image: "ghcr.io/distantgeek/open-atomic-agent:latest"
+
+# Source repo root (set by playbook or make)
+repo_root: "{{ playbook_dir }}/../.."

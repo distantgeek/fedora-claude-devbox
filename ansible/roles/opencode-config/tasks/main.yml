@@ -1,0 +1,52 @@
+---
+# open-atomic — OpenCode agent container runtime state.
+# The security framework (plugins, agents, skills, instructions, commands) is
+# baked into the agent container image. The agent Quadlet is baked into the VM
+# image (/etc/skel). This role handles runtime user state only.
+
+- name: Ensure session cert directory exists
+  ansible.builtin.file:
+    path: "{{ target_user_home }}/.config/opencode/sessions"
+    state: directory
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0700"
+
+- name: Ensure agent container config dir exists
+  ansible.builtin.file:
+    path: "{{ target_user_home }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0755"
+
+- name: Pull agent container image
+  ansible.builtin.command: podman pull {{ agent_image }}
+  changed_when: false
+
+- name: Reload user systemd units
+  ansible.builtin.systemd:
+    name: opencode-agent.service
+    state: started
+    enabled: true
+    scope: user
+
+- name: Wire Proxmox token sourcing in .bashrc (if not already present)
+  ansible.builtin.blockinfile:
+    path: "{{ target_user_home }}/.bashrc"
+    marker: "# {mark} ANSIBLE MANAGED — proxmox token"
+    block: |
+      if [ -f "$HOME/.config/proxmox/token" ]; then
+          set -a
+          source "$HOME/.config/proxmox/token"
+          set +a
+      fi
+    create: false
+
+- name: Display opencode-config summary
+  ansible.builtin.debug:
+    msg: |
+      ── opencode-config deployed ──
+      Agent image  : {{ agent_image }}
+      Session dir  : {{ target_user_home }}/.config/opencode/sessions
+      Framework    : baked into agent image (immutable)

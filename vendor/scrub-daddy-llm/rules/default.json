@@ -1,0 +1,93 @@
+{
+  "rules": [
+    {
+      "name": "private_key_block",
+      "pattern": "-----BEGIN\\s+(?:RSA|EC|DSA|OPENSSH|ED25519)\\s+PRIVATE\\s+KEY-----[^-]+-----END\\s+(?:RSA|EC|DSA|OPENSSH|ED25519)\\s+PRIVATE\\s+KEY-----",
+      "flags": ["DOTALL"],
+      "replacement": "***REDACTED_PRIVATE_KEY***",
+      "description": "PEM private key blocks"
+    },
+    {
+      "name": "openai_api_key",
+      "pattern": "sk-(?:proj-|svc-)?[A-Za-z0-9_-]{32,}",
+      "replacement": "***REDACTED_API_KEY***",
+      "description": "OpenAI / Stripe API keys"
+    },
+    {
+      "name": "context7_api_key",
+      "pattern": "ctx7sk_[A-Za-z0-9_-]{20,}",
+      "replacement": "***REDACTED_API_KEY***",
+      "description": "Context7 API keys"
+    },
+    {
+      "name": "github_token",
+      "pattern": "gh[pousr]_[A-Za-z0-9_]{20,}",
+      "replacement": "***REDACTED_GITHUB_TOKEN***",
+      "description": "GitHub personal access tokens"
+    },
+    {
+      "name": "aws_access_key",
+      "pattern": "AKIA[0-9A-Z]{16}",
+      "replacement": "***REDACTED_AWS_KEY***",
+      "description": "AWS IAM access key IDs"
+    },
+    {
+      "name": "slack_token",
+      "pattern": "xox[bprm]-[0-9A-Za-z-]{10,}",
+      "replacement": "***REDACTED_SLACK_TOKEN***",
+      "description": "Slack tokens"
+    },
+    {
+      "name": "gitlab_token",
+      "pattern": "glpat-[A-Za-z0-9_-]{20,}",
+      "flags": ["IGNORECASE"],
+      "replacement": "***REDACTED_GITLAB_TOKEN***",
+      "description": "GitLab tokens (case-insensitive)"
+    },
+    {
+      "name": "jwt_token",
+      "pattern": "eyJ[A-Za-z0-9_-]{4,}\\.[A-Za-z0-9_-]{4,}\\.[A-Za-z0-9_-]{4,}",
+      "replacement": "***REDACTED_JWT***",
+      "description": "JWT tokens"
+    },
+    {
+      "name": "bearer_token_header",
+      "pattern": "(?:Authorization|AUTHORIZATION)\\s*:\\s*Bearer\\s+\\S+",
+      "flags": ["IGNORECASE"],
+      "replacement": "Authorization: Bearer ***REDACTED***",
+      "description": "Authorization Bearer headers"
+    },
+    {
+      "name": "url_credentials",
+      "pattern": "://[^:@/\\s]{1,64}:[^@/\\s]{1,128}@",
+      "replacement": "://***:***@",
+      "description": "URL credentials"
+    },
+    {
+      "name": "hex_key_128bit",
+      "pattern": "(?:key|KEY)\\s*[=:]\\s*[A-Fa-f0-9]{32}",
+      "replacement": "key=***REDACTED_HEX***",
+      "description": "128-bit hex keys"
+    },
+    {
+      "name": "password_assignment",
+      "pattern": "(password|passwd|pwd)\\s*[=:]\\s*(?!\\*\\*\\*)\\S+",
+      "flags": ["IGNORECASE"],
+      "replacement": "\\1=***REDACTED***",
+      "description": "Password assignments"
+    },
+    {
+      "name": "secret_token_assignment",
+      "pattern": "\\b(secret|api[_-]?key|apikey|token|credential|auth[_-]?token)\\s*[=:]\\s*(?!\\*\\*\\*)\\S{5,}",
+      "flags": ["IGNORECASE"],
+      "replacement": "\\1=***REDACTED***",
+      "description": "Secret/token assignments"
+    },
+    {
+      "name": "env_key_token_export",
+      "pattern": "(?:export\\s+)?(\\w*(?:[Kk][Ee][Yy]|[Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd])\\w*)\\s*=\\s*(?!\\*\\*\\*)\\S+",
+      "replacement": "\\1=***REDACTED***",
+      "description": "Env exports with KEY/TOKEN/SECRET/PASSWORD"
+    }
+  ]
+}

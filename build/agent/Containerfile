@@ -1,0 +1,169 @@
+FROM quay.io/fedora/fedora:44
+
+# ---------------------------------------------------------------------------
+# open-atomic-agent — OpenCode + security framework + toolchains.
+# Runs rootless inside a user namespace on the open-atomic VM. The framework
+# is baked in root-owned (immutable to the non-root agent user).
+# ---------------------------------------------------------------------------
+
+LABEL org.opencontainers.image.title="open-atomic-agent"
+LABEL org.opencontainers.image.description="OpenCode agent container — framework, toolchains, SAST"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+
+# ---------------------------------------------------------------------------
+# System packages
+# ---------------------------------------------------------------------------
+RUN dnf install -y \
+    git \
+    gh \
+    curl \
+    wget \
+    unzip \
+    tmux \
+    zsh \
+    vim \
+    jq \
+    yq \
+    make \
+    gcc \
+    gcc-c++ \
+    openssl-devel \
+    pkg-config \
+    # Nested rootless podman
+    podman \
+    buildah \
+    skopeo \
+    fuse-overlayfs \
+    # Python (for uv and tooling)
+    python3 \
+    python3-pip \
+    # Ansible (homelab management control node)
+    ansible-core \
+    # Misc
+    tree \
+    htop \
+    ripgrep \
+    fd-find \
+    bat \
+    direnv \
+    && dnf clean all
+
+# ---------------------------------------------------------------------------
+# fnm → Node LTS
+# ---------------------------------------------------------------------------
+RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- \
+    --install-dir /usr/local/share/fnm \
+    --skip-shell
+ENV FNM_DIR=/usr/local/share/fnm
+ENV PATH="/usr/local/share/fnm:$PATH"
+RUN fnm install --lts && fnm default lts-latest
+
+# ---------------------------------------------------------------------------
+# uv + uvx
+# ---------------------------------------------------------------------------
+RUN curl -fsSL "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-unknown-linux-gnu.tar.gz" \
+    | tar -xz -C /tmp \
+    && mv /tmp/uv-x86_64-unknown-linux-gnu/uv /usr/local/bin/uv \
+    && mv /tmp/uv-x86_64-unknown-linux-gnu/uvx /usr/local/bin/uvx \
+    && rm -rf /tmp/uv-x86_64-unknown-linux-gnu
+
+# ---------------------------------------------------------------------------
+# rustup
+# ---------------------------------------------------------------------------
+RUN curl -fsSL "https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init" \
+    -o /usr/local/bin/rustup \
+    && chmod +x /usr/local/bin/rustup
+
+# ---------------------------------------------------------------------------
+# mise
+# ---------------------------------------------------------------------------
+RUN MISE_VERSION=$(curl -fsSL https://api.github.com/repos/jdx/mise/releases/latest \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])") \
+    && curl -fsSL "https://github.com/jdx/mise/releases/download/${MISE_VERSION}/mise-${MISE_VERSION}-linux-x64" \
+    -o /usr/local/bin/mise \
+    && chmod +x /usr/local/bin/mise
+
+# ---------------------------------------------------------------------------
+# OpenCode CLI
+# ---------------------------------------------------------------------------
+RUN HOME=/tmp /usr/local/share/fnm/fnm exec --using=lts-latest \
+    npm install -g opencode-ai
+
+# Put the fnm default node bin (opencode, node, npm, socket) on PATH — stable
+# via the `default` alias regardless of the resolved LTS version.
+ENV PATH="/usr/local/share/fnm/aliases/default/bin:$PATH"
+
+# ---------------------------------------------------------------------------
+# SAST tools
+# ---------------------------------------------------------------------------
+RUN UV_TOOL_DIR=/usr/local/share/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin \
+        uv tool install bandit \
+    && UV_TOOL_DIR=/usr/local/share/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin \
+        uv tool install pip-audit
+RUN HOME=/tmp /usr/local/share/fnm/fnm exec --using=lts-latest \
+    npm install -g @socketsecurity/cli
+RUN python3 - << 'PYEOF'
+import json, urllib.request, tarfile, io, os, sys
+try:
+    req = urllib.request.Request(
+        "https://api.github.com/repos/rustsec/rustsec/releases?per_page=30",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "open-atomic-agent-build"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        releases = json.load(r)
+    matches = [
+        a["browser_download_url"]
+        for rel in releases
+        if rel["tag_name"].startswith("cargo-audit/")
+        for a in rel.get("assets", [])
+        if "x86_64-unknown-linux-musl" in a["name"]
+        and a["name"].endswith((".tar.gz", ".tgz"))
+    ]
+    if not matches:
+        raise FileNotFoundError("cargo-audit musl asset not found in releases")
+    url = matches[0]
+    with urllib.request.urlopen(url, timeout=120) as r:
+        data = r.read()
+    with tarfile.open(fileobj=io.BytesIO(data)) as tf:
+        member = next(m for m in tf.getmembers() if os.path.basename(m.name) == "cargo-audit")
+        with tf.extractfile(member) as f:
+            open("/usr/local/bin/cargo-audit", "wb").write(f.read())
+        os.chmod("/usr/local/bin/cargo-audit", 0o755)
+    print("cargo-audit installed")
+except Exception as e:
+    print(f"WARNING: cargo-audit download failed ({e}); install post-deploy", file=sys.stderr)
+PYEOF
+
+# ---------------------------------------------------------------------------
+# scrub-daddy-llm — rule-based secret/PII scrubber (vendored from opencode-workflow).
+# Used by the scrub-daddy-bridge plugin (tool.execute.after) to redact tool output.
+# ---------------------------------------------------------------------------
+COPY vendor/scrub-daddy-llm /tmp/scrub-daddy-llm
+RUN pip install --no-cache-dir /tmp/scrub-daddy-llm \
+    && rm -r /tmp/scrub-daddy-llm
+
+# ---------------------------------------------------------------------------
+# Framework — managed config (immutable, root-owned)
+#   /etc/opencode/opencode.json     — managed config (permissions, instructions, MCPs)
+#   /opt/open-atomic/opencode/      — plugins, agents, skills, instructions, commands
+# ---------------------------------------------------------------------------
+RUN mkdir -p /etc/opencode /opt/open-atomic/opencode /sessions /repos
+COPY config/opencode.jsonc /etc/opencode/opencode.json
+COPY plugins/ /opt/open-atomic/opencode/plugins/
+COPY config/agents/ /opt/open-atomic/opencode/agents/
+COPY config/skills/ /opt/open-atomic/opencode/skills/
+COPY config/instructions/ /opt/open-atomic/opencode/instructions/
+COPY config/commands/ /opt/open-atomic/opencode/commands/
+COPY config/security-tools.json /opt/open-atomic/opencode/security-tools.json
+ENV OPENCODE_CONFIG_DIR=/opt/open-atomic/opencode
+
+# ---------------------------------------------------------------------------
+# Non-root agent user. The framework above is root-owned — the agent cannot
+# modify its own guardrails. The agent's home (/home/agent) is writable for
+# user prefs, caches, and session certs (/sessions is a mounted volume).
+# ---------------------------------------------------------------------------
+RUN useradd -m -u 1000 -s /bin/bash agent
+USER agent
+WORKDIR /repos
+
+ENTRYPOINT ["opencode"]

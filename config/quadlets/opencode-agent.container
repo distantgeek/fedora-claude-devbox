@@ -1,0 +1,19 @@
+[Container]
+Image=ghcr.io/distantgeek/open-atomic-agent:latest
+ContainerName=opencode-agent
+HostName=open-atomic-agent
+
+# Session certs (mounted read-write; the CA key is NOT mounted)
+Volume=%h/.config/opencode/sessions:/sessions:rw
+
+# Projects volume (persistent work dir)
+Volume=%h/repos:/repos:rw
+
+# Nested rootless podman inside the agent container
+Volume=/dev/fuse:/dev/fuse
+
+# Pull the latest agent image on every start (fast framework updates)
+Pull=always
+
+[Install]
+WantedBy=default.target

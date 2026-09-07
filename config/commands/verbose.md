@@ -1,0 +1,1 @@
+Switch to verbose mode for this session. Override the default caveman (terse) output style. Provide full, detailed responses: thorough explanations, step-by-step reasoning, and comprehensive summaries. This applies to all subsequent responses in this session until the user switches back.

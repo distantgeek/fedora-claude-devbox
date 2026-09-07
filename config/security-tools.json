@@ -1,0 +1,175 @@
+{
+  "python": {
+    "tool": "bandit",
+    "args": [
+      "-r",
+      "."
+    ],
+    "pkg": "pip install bandit",
+    "coverage": 80,
+    "test_cmd": "pytest --cov=. --cov-report=term-missing",
+    "lint_cmd": "ruff check ."
+  },
+  "rust": {
+    "tool": "cargo-audit",
+    "args": [],
+    "pkg": "cargo install cargo-audit",
+    "coverage": 80,
+    "test_cmd": "cargo test",
+    "lint_cmd": "cargo clippy -- -D warnings",
+    "extra_tools": [
+      {
+        "tool": "cargo-deny",
+        "args": [
+          "check"
+        ],
+        "pkg": "cargo install cargo-deny"
+      },
+      {
+        "tool": "cargo-geiger",
+        "args": [],
+        "pkg": "cargo install cargo-geiger"
+      }
+    ]
+  },
+  "go": {
+    "tool": "gosec",
+    "args": [
+      "./..."
+    ],
+    "pkg": "go install github.com/securego/gosec/v2/cmd/gosec@latest",
+    "coverage": 80,
+    "test_cmd": "go test ./... -coverprofile=coverage.out",
+    "lint_cmd": "golangci-lint run",
+    "extra_tools": [
+      {
+        "tool": "govulncheck",
+        "args": [
+          "./..."
+        ],
+        "pkg": "go install golang.org/x/vuln/cmd/govulncheck@latest"
+      }
+    ]
+  },
+  "javascript": {
+    "tool": "npm audit",
+    "args": [],
+    "pkg": null,
+    "coverage": 80,
+    "test_cmd": "npm test -- --coverage",
+    "lint_cmd": "npx eslint ."
+  },
+  "typescript": {
+    "tool": "npm audit",
+    "args": [],
+    "pkg": null,
+    "coverage": 80,
+    "test_cmd": "npm test -- --coverage",
+    "lint_cmd": "npx eslint . && npx tsc --noEmit"
+  },
+  "java": {
+    "tool": "spotbugs",
+    "args": [],
+    "pkg": null,
+    "coverage": 80,
+    "test_cmd": "mvn test",
+    "lint_cmd": "mvn checkstyle:check"
+  },
+  "kotlin": {
+    "tool": "spotbugs",
+    "args": [],
+    "pkg": null,
+    "coverage": 80,
+    "test_cmd": "./gradlew test",
+    "lint_cmd": "./gradlew detekt"
+  },
+  "docker": {
+    "tool": "hadolint",
+    "args": [],
+    "pkg": null,
+    "coverage": null,
+    "test_cmd": "container-structure-test test --image IMAGE --config test.yaml",
+    "lint_cmd": "hadolint Dockerfile",
+    "extra_tools": [
+      {
+        "tool": "trivy",
+        "args": [
+          "image",
+          "IMAGE"
+        ],
+        "pkg": null
+      }
+    ]
+  },
+  "kubernetes": {
+    "tool": "kube-linter",
+    "args": [
+      "lint",
+      "."
+    ],
+    "pkg": null,
+    "coverage": null,
+    "test_cmd": null,
+    "lint_cmd": "kube-linter lint ."
+  },
+  "terraform": {
+    "tool": "checkov",
+    "args": [
+      "-d",
+      "."
+    ],
+    "pkg": "pip install checkov",
+    "coverage": null,
+    "test_cmd": "terraform test",
+    "lint_cmd": "terraform validate && tflint"
+  },
+  "c": {
+    "tool": "flawfinder",
+    "args": [
+      "."
+    ],
+    "pkg": null,
+    "coverage": 70,
+    "test_cmd": null,
+    "lint_cmd": "cppcheck ."
+  },
+  "cpp": {
+    "tool": "flawfinder",
+    "args": [
+      "."
+    ],
+    "pkg": null,
+    "coverage": 70,
+    "test_cmd": null,
+    "lint_cmd": "cppcheck ."
+  },
+  "multi-lang": {
+    "tool": "semgrep",
+    "args": [
+      "--config=auto"
+    ],
+    "pkg": "pip install semgrep",
+    "coverage": null,
+    "test_cmd": null,
+    "lint_cmd": null
+  },
+  "sandbox": {
+    "docker": {
+      "image": "test-runner:latest",
+      "command": "docker run --rm -v $PWD:/src"
+    },
+    "daytona": {
+      "plugin": "opencode-daytona"
+    }
+  },
+  "bash": {
+    "tool": "shellcheck",
+    "args": [
+      "-x"
+    ],
+    "pkg": null,
+    "coverage": null,
+    "test_cmd": null,
+    "lint_cmd": "shellcheck -x"
+  }
+}

@@ -34,13 +34,9 @@
   become: true
   changed_when: false
 
-- name: Ensure podman.socket is enabled (system)
-  ansible.builtin.systemd:
-    name: podman.socket
-    state: started
-    enabled: true
-  become: true
-  ignore_errors: true
+# NOTE: podman.socket (root) is deliberately NOT enabled — the agent container
+# must never see the VM's podman socket (escape vector). Rootless podman runs
+# under the devbox user without a socket.
 
 - name: Ensure ~/.config/containers exists
   ansible.builtin.file:
@@ -72,7 +68,7 @@
     content: |
       # DEVBOX_INSTALLED.md
 
-      Tracks ad hoc installs made by Claude Code or manually.
+      Tracks ad hoc installs made by OpenCode or manually.
       Update on every install outside the base bootc image.
 
       | Date | Tool | Version | Method | Project | Reason |
@@ -82,5 +78,5 @@
       | (image) | uv | latest | curl installer | base | Python package manager |
       | (image) | rustup | latest | curl installer | base | Rust toolchain manager |
       | (image) | mise | latest | curl installer | base | Unified version manager |
-      | (image) | claude | latest | npm global | base | Claude Code CLI |
+      | (image) | opencode | latest | npm global | base | OpenCode CLI |
   when: not devbox_installed_stat.stat.exists

@@ -1,0 +1,15 @@
+[project]
+name = "scrub-daddy-llm"
+version = "0.1.0"
+description = "Data scrubber for LLM pipelines — redacts secrets, PII, and sensitive data from tool outputs and logs"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+readme = "README.md"
+authors = [{ name = "OpenCode Workflow" }]
+
+[project.scripts]
+scrub-daddy-llm = "scrub_daddy_llm.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# grant-session — mint a short-lived SSH certificate for remote management.
+#
+# The SSH CA private key lives in ~/.ssh/ca/open-atomic-ca (host-only, never
+# mounted into the agent container). The agent's public key is signed with the
+# CA key to produce a certificate valid for the requested window. The cert is
+# written to the session dir (~/.config/opencode/sessions/<target>.cert),
+# which IS mounted into the agent container.
+#
+# Usage:
+#   grant-session <target> [duration]     # e.g. grant-session proxmox 30m
+#   grant-session --list                  # list active sessions
+#   grant-session --revoke <target>       # remove a session cert early
+#   grant-session --setup                 # generate CA key + agent key
+
+set -euo pipefail
+
+CA_DIR="${HOME}/.ssh/ca"
+CA_KEY="${CA_DIR}/open-atomic-ca"
+AGENT_KEY="${HOME}/.ssh/open-atomic-agent"
+SESSION_DIR="${HOME}/.config/opencode/sessions"
+TARGETS_FILE="${HOME}/.config/open-atomic/targets.conf"
+
+# Default agent principal (root) and cert validity.
+DEFAULT_PRINCIPAL="root"
+DEFAULT_DURATION="30m"
+
+info()  { echo "grant-session: $*" >&2; }
+die()   { echo "grant-session: ERROR: $*" >&2; exit 1; }
+
+setup() {
+  mkdir -p "${CA_DIR}" "${SESSION_DIR}" "$(dirname "${TARGETS_FILE}")"
+  [ -f "${CA_KEY}" ] || {
+    info "generating SSH CA keypair at ${CA_KEY}"
+    ssh-keygen -t ed25519 -N "" -f "${CA_KEY}" -C "open-atomic-ca"
+  }
+  [ -f "${AGENT_KEY}" ] || {
+    info "generating agent key at ${AGENT_KEY}"
+    ssh-keygen -t ed25519 -N "" -f "${AGENT_KEY}" -C "open-atomic-agent"
+  }
+  [ -f "${TARGETS_FILE}" ] || {
+    info "creating targets file at ${TARGETS_FILE}"
+    cat > "${TARGETS_FILE}" << 'EOF'
+# open-atomic session targets
+# <name> <user>@<host> <principal> [port]
+# proxmox root@192.168.2.2 root
+# truenas root@192.168.2.x root
+EOF
+  }
+  info "CA public key (install as cert-authority on each target):"
+  cat "${CA_KEY}.pub"
+}
+
+resolve_target() {
+  local name="$1"
+  local line
+  line="$(grep -E "^[[:space:]]*${name}[[:space:]]" "${TARGETS_FILE}" | head -1 || true)"
+  [ -n "${line}" ] || die "unknown target '${name}'. Add it to ${TARGETS_FILE}"
+  read -r _ userhost principal port <<< "${line}"
+  [ -n "${principal}" ] || principal="${DEFAULT_PRINCIPAL}"
+  TARGET_USERHOST="${userhost}"
+  TARGET_PRINCIPAL="${principal}"
+  TARGET_PORT="${port:-22}"
+}
+
+list_sessions() {
+  info "active sessions:"
+  local f found=0
+  for f in "${SESSION_DIR}"/*.cert; do
+    [ -e "${f}" ] || continue
+    found=1
+    local target valid
+    target="$(basename "${f}" .cert)"
+    valid="$(ssh-keygen -L -f "${f}" 2>/dev/null | grep -m1 'Valid:' || echo 'unknown')"
+    printf '  %-16s %s\n' "${target}" "${valid}"
+  done
+  [ "${found}" -eq 1 ] || info "  (none)"
+}
+
+revoke_session() {
+  local name="$1"
+  rm -f "${SESSION_DIR}/${name}.cert"
+  info "revoked session cert for '${name}'"
+}
+
+grant_session() {
+  local name="$1" duration="${2:-${DEFAULT_DURATION}}"
+  [ -f "${CA_KEY}" ] || die "CA key missing — run: grant-session --setup"
+  [ -f "${AGENT_KEY}.pub" ] || die "agent key missing — run: grant-session --setup"
+  resolve_target "${name}"
+  mkdir -p "${SESSION_DIR}"
+
+  local ts id cert
+  ts="$(date +%Y%m%d%H%M%S)"
+  id="open-atomic:${name}:${ts}"
+
+  ssh-keygen -s "${CA_KEY}" \
+    -I "${id}" \
+    -n "${TARGET_PRINCIPAL}" \
+    -V "+${duration}" \
+    "${AGENT_KEY}.pub" >/dev/null 2>&1
+
+  cert="${AGENT_KEY}-cert.pub"
+  [ -f "${cert}" ] || die "certificate signing failed"
+
+  cp "${cert}" "${SESSION_DIR}/${name}.cert"
+  chmod 600 "${SESSION_DIR}/${name}.cert"
+  rm -f "${cert}"
+
+  info "granted '${name}' → ${TARGET_USERHOST} (principal=${TARGET_PRINCIPAL}) for ${duration}"
+  info "agent usage: ssh -i /sessions/${name}.cert -p ${TARGET_PORT} ${TARGET_USERHOST}"
+}
+
+case "${1:-}" in
+  --setup)    setup ;;
+  --list)     list_sessions ;;
+  --revoke)   [ -n "${2:-}" ] || die "--revoke requires a target"; revoke_session "$2" ;;
+  ""|--help|-h)
+    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+  *)          grant_session "$1" "${2:-}" ;;
+esac

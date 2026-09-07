@@ -21,12 +21,17 @@ vault_pass*
 config/proxmox/
 ~/.config/proxmox/
 
-# Claude Code / Opencode / Qwen Code local settings — not portable
-.claude/settings.json
-.claude/context/
-.openode/
-.qwen/
+# OpenCode local settings — not portable
+.opencode/
 .mcp/
+
+# Session certs — never commit
+.config/opencode/sessions/
+~/.config/opencode/sessions/
+*session*.cert
+
+# SSH CA key — never commit
+.ssh/ca/
 
 # Ansible runtime artifacts
 ansible/deployment.log
@@ -81,3 +86,7 @@ logs/
 .cache/ms-playwright/
 .local/bin/browse*
 .local/bin/playwright*
+
+# Python build artifacts (vendored packages)
+*.egg-info/
+vendor/*/build/

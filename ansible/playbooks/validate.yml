@@ -1,15 +1,15 @@
 ---
-# Post-deployment validation for fedora-claude-devbox.
+# Post-deployment validation for open-atomic.
 # Verifies the devbox is correctly configured after make deploy.
 #
 # Usage: make validate VM_HOST=192.168.x.x
 
-- name: Validate fedora-claude-devbox deployment
+- name: Validate open-atomic deployment
   hosts: all
   gather_facts: true
 
   vars:
-    target_user: "{{ ansible_user | default('kevbot') }}"
+    target_user: "{{ ansible_user | default('devbox') }}"
     target_user_home: "/home/{{ target_user }}"
 
   tasks:
@@ -30,19 +30,44 @@
       register: podman_version
       changed_when: false
 
-    - name: Verify rootless Podman works
+    - name: Verify rootless Podman SELinux status
       ansible.builtin.command: podman info --format '{{ "{{" }}.Host.Security.SELinuxEnabled{{ "}}" }}'
       register: podman_selinux
       changed_when: false
 
-    # ── Claude Code ───────────────────────────────────────────────────────
-    - name: Check Claude Code version
+    # ── OpenCode ──────────────────────────────────────────────────────────
+    - name: Check OpenCode version
       ansible.builtin.shell: |
-        source ~/.bashrc && claude --version
+        source ~/.bashrc && opencode --version
       args:
         executable: /bin/bash
-      register: claude_version
+      register: opencode_version
       changed_when: false
+
+    # ── Framework (immutable layers) ──────────────────────────────────────
+    - name: Check managed config exists
+      ansible.builtin.stat:
+        path: /etc/opencode/opencode.json
+      register: managed_config
+      become: true
+
+    - name: Assert managed config is present
+      ansible.builtin.assert:
+        that: managed_config.stat.exists
+        fail_msg: "Managed config missing at /etc/opencode/opencode.json"
+        success_msg: "Managed config present."
+
+    - name: Check framework dir exists
+      ansible.builtin.stat:
+        path: /opt/open-atomic/opencode
+      register: framework_dir
+      become: true
+
+    - name: Assert framework dir is present
+      ansible.builtin.assert:
+        that: framework_dir.stat.exists
+        fail_msg: "Framework dir missing at /opt/open-atomic/opencode"
+        success_msg: "Framework dir present."
 
     # ── Node / fnm ────────────────────────────────────────────────────────
     - name: Check Node.js version
@@ -106,35 +131,24 @@
         fail_msg: "firewalld is not running."
         success_msg: "firewalld is active."
 
-    # ── User lingering ────────────────────────────────────────────────────
-    - name: Check user lingering
-      ansible.builtin.command: loginctl show-user {{ target_user }} --property=Linger
-      register: linger_status
+    # ── No sudo for the devbox user ───────────────────────────────────────
+    - name: Assert devbox user has no sudo
+      ansible.builtin.command: sudo -n true
+      register: sudo_check
       changed_when: false
-      become: true
+      failed_when: false
 
-    - name: Assert lingering is enabled
+    - name: Verify sudo is unavailable
       ansible.builtin.assert:
-        that: "'Linger=yes' in linger_status.stdout"
-        fail_msg: "User lingering is not enabled for {{ target_user }}. Rootless Podman services will not survive logout."
-        success_msg: "User lingering enabled."
+        that: sudo_check.rc != 0
+        fail_msg: "devbox user has sudo access — security regression"
+        success_msg: "devbox user has no sudo (correct)."
 
-    # ── Hooks ─────────────────────────────────────────────────────────────
-    - name: Check hook scripts exist and are executable
-      ansible.builtin.stat:
-        path: "{{ item }}"
-      register: hook_stats
-      loop:
-        - "{{ target_user_home }}/.claude/hooks/pre_tool_use/enforce_permissions.py"
-        - "{{ target_user_home }}/.claude/hooks/post_tool_use/scrub_output.py"
-        - "{{ target_user_home }}/.claude/hooks/lib/patterns.py"
-
-    - name: Assert hooks are executable
-      ansible.builtin.assert:
-        that: item.stat.exists and item.stat.executable
-        fail_msg: "Hook not found or not executable: {{ item.item }}"
-        success_msg: "Hook OK: {{ item.item }}"
-      loop: "{{ hook_stats.results }}"
+    # ── Agent container ───────────────────────────────────────────────────
+    - name: Check agent container is running
+      ansible.builtin.command: podman ps --filter name=opencode-agent --format '{{ "{{" }}.Status{{ "}}" }}'
+      register: agent_container
+      changed_when: false
 
     # ── DEVBOX_INSTALLED.md ───────────────────────────────────────────────
     - name: Check DEVBOX_INSTALLED.md exists
@@ -146,13 +160,15 @@
     - name: Validation summary
       ansible.builtin.debug:
         msg: |
-          ── fedora-claude-devbox validation summary ──
+          ── open-atomic validation summary ──
           bootc         : {{ bootc_status.stdout_lines[0] | default('unknown') }}
           Podman        : {{ podman_version.stdout }}
           SELinux       : {{ selinux_status.stdout }}
           firewalld     : {{ firewalld_status.status.ActiveState }}
-          Linger        : {{ linger_status.stdout }}
-          Claude Code   : {{ claude_version.stdout | default('not found') }}
+          OpenCode      : {{ opencode_version.stdout | default('not found') }}
+          Managed cfg   : {{ 'present' if managed_config.stat.exists else 'MISSING' }}
+          Framework dir : {{ 'present' if framework_dir.stat.exists else 'MISSING' }}
+          Agent container: {{ agent_container.stdout | default('not running') }}
           Node.js       : {{ node_version.stdout | default('not found') }}
           uv            : {{ uv_version.stdout | default('not found') }}
           rustup        : {{ rustup_version.stdout | default('not found') }}

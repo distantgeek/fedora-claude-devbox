@@ -1,16 +1,16 @@
 ---
-# Optional Kubernetes layer for fedora-claude-devbox.
+# Optional Kubernetes layer for open-atomic.
 # Installs kubectl, helm, and k3s or KIND on a running devbox.
 # Does NOT rebuild the bootc image — additive only.
 #
 # Usage: make enable-kubernetes VM_HOST=192.168.x.x [K8S_BACKEND=k3s|kind]
 
-- name: Install Kubernetes tooling on fedora-claude-devbox
+- name: Install Kubernetes tooling on open-atomic
   hosts: all
   gather_facts: true
 
   vars:
-    target_user: "{{ ansible_user | default('kevbot') }}"
+    target_user: "{{ ansible_user | default('devbox') }}"
     target_user_home: "/home/{{ target_user }}"
     kubernetes_backend: "{{ lookup('env', 'K8S_BACKEND') | default('k3s', true) }}"
 
@@ -18,7 +18,7 @@
     - name: Display Kubernetes install info
       ansible.builtin.debug:
         msg: |
-          ── fedora-claude-devbox kubernetes ──
+          ── open-atomic kubernetes ──
           Host    : {{ inventory_hostname }}
           Backend : {{ kubernetes_backend }}
           Date    : {{ ansible_date_time.date }}
@@ -27,26 +27,9 @@
     - role: kubernetes
 
   post_tasks:
-    - name: Update CLAUDE.md to full tier
-      ansible.builtin.template:
-        src: "{{ playbook_dir }}/../roles/claude-config/templates/CLAUDE.full.md.j2"
-        dest: "{{ target_user_home }}/.claude/CLAUDE.md"
-        owner: "{{ target_user }}"
-        group: "{{ target_user }}"
-        mode: "0644"
-      vars:
-        mcp_servers_deployed: "{{ lookup('file', target_user_home + '/.claude/claude_desktop_config.json') is file }}"
-
     - name: Kubernetes install complete
       ansible.builtin.debug:
         msg: |
           ── Kubernetes ({{ kubernetes_backend }}) installed ──
           kubectl  : run `kubectl version --client`
           helm     : run `helm version`
-{% if kubernetes_backend == 'k3s' %}
-          k3s      : run `systemctl status k3s`
-          kubeconfig: /etc/rancher/k3s/k3s.yaml
-{% else %}
-          KIND     : run `kind get clusters`
-          Create   : kind create cluster --name devbox
-{% endif %}

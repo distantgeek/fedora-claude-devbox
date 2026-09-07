@@ -1,53 +1,237 @@
 {
   "$schema": "https://opencode.ai/config.json",
 
-  // ── Custom subagents (security framework adaptation) ─────────────────────
-  // OpenCode has no hook system. Security enforcement here is behavioral:
-  // strong agent prompts + mandatory /audit command replace PreToolUse hooks.
-  // SAST tools (bandit, cargo-audit, npm audit) must be run explicitly via
-  // the /audit command or by invoking these agents directly with @agent-name.
-  "agent": {
-    "security-reviewer": {
-      "mode": "subagent",
-      "description": "Security vulnerability detection and remediation. Apply OWASP Top 10, CIS Controls v8 (IG1/IG2 + container hardening), and NIST SP 800-53 Rev 5. Flag secrets, SSRF, injection, unsafe crypto. Run SAST tools: bandit (Python), cargo audit (Rust), npm audit (Node/TS).",
-      "prompt": "You are a security-focused code reviewer. Apply these frameworks to every review:\n\nOWASP Top 10: Check A01 (broken access control — deny by default), A02 (crypto — TLS 1.2+, AES-256, no MD5/SHA1), A03 (injection — parameterized queries, no string-concat SQL), A04 (insecure design — explicit trust boundaries), A05 (misconfiguration — no default creds), A06 (vulnerable components — check audit tools), A07 (auth failures — bcrypt/argon2, secure sessions), A08 (integrity failures — verify signatures), A09 (logging failures — log auth events), A10 (SSRF — allowlist outbound).\n\nCIS Controls v8 IG1 (always required): inventory assets, track software, secure config, least privilege, deny-by-default, verify backups exist before destructive ops.\n\nCIS IG2 for server/container workloads: encrypt sensitive paths, audit logs not writable by app user, document firewall rules, SAST on every language.\n\nContainer hardening: no --privileged unless justified, read-only rootfs where feasible, drop all capabilities then add back minimally, SELinux labels (:Z or :z) on all volume mounts, no secrets in environment variables visible via podman inspect.\n\nNIST SP 800-53: AC-6 least privilege, AU-2 event logging, CM-7 least functionality, IA-5 credential management, SC-8 TLS for all comms, SI-2 patch within 30 days.\n\nFor Python files: run `bandit -r <file> -ll` and report HIGH/MEDIUM findings.\nFor Rust projects: run `cargo audit` from project root.\nFor Node/TS projects: run `npm audit --audit-level=high` and `npm audit signatures`.\nFor Python projects: run `pip-audit` or `uvx pip-audit` from project root.\n\nNever expose: ~/.ssh/, ~/.config/proxmox/token, /etc/soc/credentials/, *.key, *.pem, .env files. If these appear in output, treat as a scrubber miss — do not reproduce content.\n\nReport format: list findings by severity (CRITICAL → HIGH → MEDIUM → LOW), each with: location, CWE/OWASP reference, remediation. Block on CRITICAL/HIGH before any code work proceeds.",
-      "color": "error"
-    },
+  "model": "{env:OPENCODE_MODEL}",
+  "small_model": "{env:OPENCODE_SMALL_MODEL}",
+  "autoupdate": true,
+  "snapshot": true,
 
-    "code-reviewer": {
-      "mode": "subagent",
-      "description": "Code quality, architecture, and maintainability review. Use before committing significant changes. Checks for silent failures, bad abstractions, missing error handling at system boundaries, and test coverage gaps.",
-      "prompt": "You are an expert code reviewer focused on correctness, maintainability, and security. Review for:\n\n1. Silent failures — swallowed errors, missing error propagation, bad fallbacks\n2. Trust boundaries — validate at system boundaries (user input, external APIs) only\n3. Dead code, premature abstractions, over-engineering\n4. Test coverage — flag untested code paths, especially error paths\n5. Security — call out any OWASP Top 10 issues found inline\n6. Language idioms — flag non-idiomatic patterns that will confuse future readers\n\nFor Python: check PEP 8, type hints, f-strings, context managers, proper exception hierarchies.\nFor Rust: check ownership correctness, error handling with ? operator, avoid unwrap() in production paths, unsafe blocks must be justified.\nFor TypeScript: check strict null safety, async/await correctness, no any types without justification.\n\nOutput: bullet list of findings grouped by file, severity marked [CRITICAL/HIGH/MEDIUM/LOW/INFO]. End with a summary of whether the code is ready to commit.",
-      "color": "warning"
-    },
+  "plugin": [
+    "@mohak34/opencode-notifier@latest"
+  ],
 
-    "docs-lookup": {
-      "mode": "subagent",
-      "description": "Fetch current library and framework documentation via Context7 MCP. Use when implementing against a specific API to get accurate, up-to-date examples rather than relying on training data.",
-      "prompt": "You are a documentation fetcher. When asked about a library, framework, or API:\n1. Use the context7 MCP tool to resolve the library ID\n2. Fetch current documentation with relevant topic focus\n3. Return accurate code examples from the live docs\n4. Note the documentation version/date if available\nNever rely on training data alone for specific API signatures — always fetch current docs.",
-      "color": "info"
+  "mcp": {
+    "github": {
+      "type": "remote",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer {env:GITHUB_PAT}"
+      },
+      "enabled": true
+    },
+    "cve": {
+      "type": "local",
+      "command": ["uvx", "cve-mcp-server"],
+      "enabled": true
+    },
+    "context7": {
+      "type": "local",
+      "command": ["context7-cache-proxy"],
+      "env": {
+        "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"
+      },
+      "enabled": true
+    },
+    "duckduckgo-search": {
+      "type": "local",
+      "command": ["uvx", "duckduckgo-mcp-server"],
+      "enabled": true
+    },
+    "filesystem": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/repos"],
+      "enabled": true
+    },
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "-y", "@playwright/mcp@latest"],
+      "enabled": true
+    },
+    "memory": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-memory"],
+      "enabled": true
+    },
+    "sequential-thinking": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "enabled": true
     }
   },
 
-  // ── Custom commands ───────────────────────────────────────────────────────
-  // /audit  — session-start mandatory review (replaces project_audit_trigger hook)
-  // /security — focused security scan of a specific file or directory
-  // /sast   — print SAST commands for this project's language stack
-  "command": {
-    "audit": {
-      "template": "Run a full session-start audit. Spawn the code-reviewer agent to audit current codebase state (git diff HEAD~5..HEAD, any staged changes, recent commits). Then spawn the security-reviewer agent to check for OWASP Top 10 issues, run SAST tools (bandit for Python, cargo audit for Rust, npm audit for Node/TS), and report any CIS/NIST findings. Report all findings before proceeding with any other work. Current project: {{cwd}}",
-      "description": "Mandatory session-start audit — code review + security scan. Run before any code work.",
-      "subtask": true
+  "instructions": [
+    "/opt/open-atomic/opencode/instructions/security-guidelines.md",
+    "/opt/open-atomic/opencode/instructions/cis-hardening.md",
+    "/opt/open-atomic/opencode/instructions/code-quality.md",
+    "/opt/open-atomic/opencode/instructions/delegation.md",
+    "/opt/open-atomic/opencode/instructions/hallucination-lessons.md",
+    "/opt/open-atomic/opencode/instructions/caveman.md",
+    "/opt/open-atomic/opencode/instructions/ponytail.md"
+  ],
+
+  "permission": {
+    "edit": "allow",
+    "bash": {
+      "*": "allow",
+      "git push*": "ask",
+      "rm -rf *": "deny"
     },
-    "security": {
-      "template": "Security review of {{input}}. Apply OWASP Top 10, CIS Controls v8, and NIST SP 800-53. Run appropriate SAST tools. Report findings by severity (CRITICAL/HIGH/MEDIUM/LOW) with CWE references and remediation steps.",
-      "description": "Focused security review of a file or directory",
-      "agent": "security-reviewer",
-      "subtask": true
+    "read": {
+      ".env*": "deny",
+      "*credentials*": "deny",
+      "*.pem": "deny",
+      "*.key": "deny"
     },
-    "sast": {
-      "template": "Detect the language stack in {{cwd}} (check for pyproject.toml/setup.py → Python, Cargo.toml → Rust, package.json → Node/TS) and output the exact SAST commands to run. Python: `bandit -r . -ll` and `uvx pip-audit`. Rust: `cargo audit`. Node/TS: `npm audit --audit-level=high` and `npm audit signatures`. Display all applicable commands — do not run them.",
-      "description": "Display SAST commands appropriate for this project's language stack"
+    "task": {
+      "*": "allow"
+    },
+    "skill": {
+      "*": "allow"
+    },
+    "webfetch": "allow",
+    "external_directory": "ask"
+  },
+
+  "agent": {
+    "security-auditor": {
+      "description": "Security auditing agent. Invoke for: vulnerability scanning, CVE checks, dependency audits, Docker/K8s/IaC security review, hardcoded secrets detection, injection pattern analysis, cryptography review. Uses CVE MCP and language-specific security skills.",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "prompt": "{file:/opt/open-atomic/opencode/agents/security-auditor.md}",
+      "permission": {
+        "edit": "deny",
+        "read": "allow",
+        "task": "allow",
+        "skill": "allow",
+        "webfetch": "allow",
+        "bash": {
+          "*": "deny",
+          "bandit *": "allow",
+          "gosec *": "allow",
+          "cargo-audit *": "allow",
+          "cargo-deny *": "allow",
+          "npm audit*": "allow",
+          "hadolint *": "allow",
+          "trivy *": "allow",
+          "kube-linter *": "allow",
+          "checkov *": "allow",
+          "semgrep *": "allow",
+          "pip-audit *": "allow",
+          "govulncheck *": "allow",
+          "flawfinder *": "allow",
+          "cargo-geiger *": "allow"
+        }
+      },
+      "color": "#ef4444"
+    },
+    "code-reviewer": {
+      "description": "Code review agent. Invoke for: code quality reviews, SOLID principle checks, readability assessment, complexity analysis, error handling review, test coverage evaluation. Read-only — does not modify files.",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "prompt": "{file:/opt/open-atomic/opencode/agents/code-reviewer.md}",
+      "permission": {
+        "edit": "deny",
+        "read": "allow",
+        "task": "allow",
+        "skill": "allow",
+        "webfetch": "allow",
+        "bash": "allow"
+      },
+      "color": "#8b5cf6"
+    },
+    "docs-writer": {
+      "description": "Documentation agent. Invoke for: writing or updating README, API docs, architecture docs, contributing guides, inline code documentation, ISO/IEC 26514 compliance. Can edit documentation files only.",
+      "mode": "subagent",
+      "temperature": 0.3,
+      "prompt": "{file:/opt/open-atomic/opencode/agents/docs-writer.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": "deny"
+      },
+      "color": "#10b981"
+    },
+    "refactor": {
+      "description": "Refactoring agent. Invoke for: restructuring code without changing behavior, extracting functions, renaming variables, consolidating duplicates, simplifying conditionals, introducing parameter objects. Preserves security properties and test coverage.",
+      "mode": "subagent",
+      "temperature": 0.2,
+      "prompt": "{file:/opt/open-atomic/opencode/agents/refactor.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow"
+      },
+      "color": "#f59e0b"
+    },
+    "project-auditor": {
+      "description": "Full codebase audit agent. Invoke for: retroactive project audits, hallucination risk detection, structural analysis, comprehensive security scanning across the entire codebase. Read-only — does not modify files.",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "prompt": "{file:/opt/open-atomic/opencode/agents/project-auditor.md}",
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "read": "allow",
+        "task": "allow",
+        "skill": "allow",
+        "webfetch": "allow",
+        "bash": {
+          "*": "deny",
+          "bandit *": "allow",
+          "gosec *": "allow",
+          "cargo-audit *": "allow",
+          "cargo-deny *": "allow",
+          "cargo-geiger *": "allow",
+          "hadolint *": "allow",
+          "trivy *": "allow",
+          "checkov *": "allow",
+          "semgrep *": "allow",
+          "pip-audit *": "allow",
+          "govulncheck *": "allow",
+          "python3 *": "allow"
+        }
+      },
+      "color": "#8b5cf6"
+    },
+    "spec-assessor": {
+      "description": "Spec validation agent. Invoke for: reviewing feature specifications, detecting ambiguity, finding contradictions, checking completeness, identifying untestable claims, flagging scope creep. Read-only — does not modify files.",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "prompt": "{file:/opt/open-atomic/opencode/agents/spec-assessor.md}",
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "read": "allow",
+        "task": "allow",
+        "skill": "allow",
+        "webfetch": "allow",
+        "bash": "deny"
+      },
+      "color": "#f59e0b"
+    },
+    "verifier": {
+      "description": "Hallucination verification agent. Invoke for: verifying agent outputs for accuracy, checking package imports exist, validating API references against documentation, confirming CVE claims, detecting false security findings, cross-referencing config schemas. Automatically invoked after security-auditor, refactor, and project-auditor outputs.",
+      "mode": "subagent",
+      "temperature": 0.0,
+      "prompt": "{file:/opt/open-atomic/opencode/agents/verifier.md}",
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "read": "allow",
+        "task": "allow",
+        "skill": "allow",
+        "webfetch": "allow",
+        "bash": {
+          "*": "deny",
+          "echo * >> ~/.config/opencode/hallucination-metrics.jsonl": "allow"
+        }
+      },
+      "color": "#f43f5e"
     }
+  },
+
+  "formatter": true,
+  "compaction": {
+    "auto": true,
+    "prune": true,
+    "reserved": 10000
   }
 }

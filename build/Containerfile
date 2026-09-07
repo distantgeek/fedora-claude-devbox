@@ -1,62 +1,40 @@
-FROM quay.io/fedora/fedora-bootc:43
+FROM quay.io/fedora/fedora-bootc:44
 
 # ---------------------------------------------------------------------------
-# Labels
+# open-atomic — VM bootc image (thin shell)
+# This image is deliberately minimal. OpenCode, toolchains, SAST, and the
+# security framework live in the agent container (ghcr.io/distantgeek/open-atomic-agent).
 # ---------------------------------------------------------------------------
-LABEL org.opencontainers.image.title="fedora-claude-devbox"
-LABEL org.opencontainers.image.description="Fedora bootc Claude Code devbox — Podman/Quadlets/SELinux"
+
+LABEL org.opencontainers.image.title="open-atomic"
+LABEL org.opencontainers.image.description="Fedora bootc host for the open-atomic agent container — Podman/Quadlets/SELinux"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 # ---------------------------------------------------------------------------
-# System packages
+# System packages — minimal: container runtime + guest agent + firewall.
+# No language toolchains here; they belong in the agent container.
 # ---------------------------------------------------------------------------
 RUN dnf install -y \
-    # Core dev tools
-    git \
-    gh \
-    curl \
-    wget \
-    unzip \
-    tmux \
-    zsh \
-    vim \
-    jq \
-    yq \
-    make \
-    gcc \
-    gcc-c++ \
-    openssl-devel \
-    pkg-config \
-    # Container tooling
     podman \
     buildah \
     skopeo \
     podman-compose \
-    # Python (for hooks and uv; libselinux required by Ansible)
-    python3 \
-    python3-pip \
-    python3-libselinux \
-    # System services
-    qemu-guest-agent \
     firewalld \
-    # direnv
-    direnv \
-    # Ansible (control node for homelab management)
-    ansible-core \
-    # Misc tools
-    tree \
-    htop \
-    ripgrep \
-    fd-find \
-    bat \
+    qemu-guest-agent \
+    git \
+    curl \
+    python3 \
+    openssh-server \
     && dnf clean all
 
 # ---------------------------------------------------------------------------
-# Enable system services in the image
+# Enable system services.
+# NOTE: podman.socket (root) is deliberately NOT enabled — the agent container
+# must never see the VM's podman socket (escape vector). Rootless podman runs
+# under the devbox user without a socket.
 # ---------------------------------------------------------------------------
 RUN systemctl enable qemu-guest-agent \
-    && systemctl enable firewalld \
-    && systemctl enable podman.socket
+    && systemctl enable firewalld
 
 # ---------------------------------------------------------------------------
 # bootc install configuration — explicitly declare root filesystem type.
@@ -64,133 +42,16 @@ RUN systemctl enable qemu-guest-agent \
 # ---------------------------------------------------------------------------
 RUN mkdir -p /usr/lib/bootc/install && \
     printf '[install.filesystem.root]\ntype = "xfs"\n' \
-    > /usr/lib/bootc/install/10-fedora-claude-devbox.toml
+    > /usr/lib/bootc/install/10-open-atomic.toml
 
 # ---------------------------------------------------------------------------
-# fnm (Fast Node Manager)
+# grant-session — mints short-lived SSH certificates for remote management.
+# The CA private key lives in ~/.ssh/ca/ (host-only, never mounted into the
+# agent container).
 # ---------------------------------------------------------------------------
-RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- \
-    --install-dir /usr/local/share/fnm \
-    --skip-shell
-
-ENV FNM_DIR=/usr/local/share/fnm
-ENV PATH="/usr/local/share/fnm:$PATH"
-
-# Install default Node LTS (required for Claude Code)
-RUN fnm install --lts && fnm default lts-latest
-
-# ---------------------------------------------------------------------------
-# uv (Python package manager) — direct binary install, system-wide
-# Avoids installer shell script home-dir assumptions in bootc build context.
-# ---------------------------------------------------------------------------
-RUN curl -fsSL "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-unknown-linux-gnu.tar.gz" \
-    | tar -xz -C /tmp \
-    && mv /tmp/uv-x86_64-unknown-linux-gnu/uv /usr/local/bin/uv \
-    && mv /tmp/uv-x86_64-unknown-linux-gnu/uvx /usr/local/bin/uvx \
-    && rm -rf /tmp/uv-x86_64-unknown-linux-gnu
-
-# ---------------------------------------------------------------------------
-# rustup — system-wide binary via direct download; per-user toolchains in ~/.cargo
-# rustup-init IS rustup (same binary, detects invocation name).
-# ---------------------------------------------------------------------------
-RUN curl -fsSL "https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init" \
-    -o /usr/local/bin/rustup \
-    && chmod +x /usr/local/bin/rustup
-
-# ---------------------------------------------------------------------------
-# mise (unified version manager) — direct binary install, system-wide
-# ---------------------------------------------------------------------------
-RUN MISE_VERSION=$(curl -fsSL https://api.github.com/repos/jdx/mise/releases/latest \
-        | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])") \
-    && curl -fsSL "https://github.com/jdx/mise/releases/download/${MISE_VERSION}/mise-${MISE_VERSION}-linux-x64" \
-    -o /usr/local/bin/mise \
-    && chmod +x /usr/local/bin/mise
-
-# ---------------------------------------------------------------------------
-# Claude Code CLI
-# HOME=/tmp avoids npm writing to /root, which is a symlink in fedora-bootc.
-# Global install lands in the fnm node prefix under /usr/local/share/fnm.
-# ---------------------------------------------------------------------------
-RUN HOME=/tmp /usr/local/share/fnm/fnm exec --using=lts-latest \
-    npm install -g @anthropic-ai/claude-code
-
-# ---------------------------------------------------------------------------
-# SAST tools — system-wide so the sast_scan.py hook works for all users
-# ---------------------------------------------------------------------------
-# Python SAST: bandit (OWASP/CWE per-file) and pip-audit (dependency CVEs).
-# UV_TOOL_BIN_DIR puts shim scripts in /usr/local/bin (in PATH for all users).
-# UV_TOOL_DIR is set inline (not ENV) so it doesn't override user defaults at runtime.
-RUN UV_TOOL_DIR=/usr/local/share/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin \
-        uv tool install bandit \
-    && UV_TOOL_DIR=/usr/local/share/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin \
-        uv tool install pip-audit
-
-# Node supply chain screening — used by the npm install warning in enforce_permissions.py
-RUN HOME=/tmp /usr/local/share/fnm/fnm exec --using=lts-latest \
-    npm install -g @socketsecurity/cli
-
-# cargo-audit — pre-built musl binary for Rust advisory scanning (RustSec DB).
-# Falls back gracefully if the release format changes; sast_scan.py provides
-# an install hint when the binary is absent.
-RUN python3 - << 'PYEOF'
-import json, urllib.request, tarfile, io, os, sys
-try:
-    req = urllib.request.Request(
-        "https://api.github.com/repos/rustsec/rustsec/releases?per_page=30",
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "fedora-claude-devbox-build"},
-    )
-    with urllib.request.urlopen(req, timeout=30) as r:
-        releases = json.load(r)
-    url = next(
-        a["browser_download_url"]
-        for rel in releases
-        if rel["tag_name"].startswith("cargo-audit/")
-        for a in rel.get("assets", [])
-        if "x86_64-unknown-linux-musl" in a["name"] and a["name"].endswith(".tar.gz")
-    )
-    with urllib.request.urlopen(url, timeout=120) as r:
-        data = r.read()
-    with tarfile.open(fileobj=io.BytesIO(data)) as tf:
-        member = next(m for m in tf.getmembers() if os.path.basename(m.name) == "cargo-audit")
-        with tf.extractfile(member) as f:
-            dest = "/usr/local/bin/cargo-audit"
-            open(dest, "wb").write(f.read())
-        os.chmod(dest, 0o755)
-    print(f"cargo-audit installed to {dest}")
-except StopIteration:
-    print("WARNING: cargo-audit musl binary not found in releases; install post-deploy: cargo install cargo-audit", file=sys.stderr)
-except Exception as e:
-    print(f"WARNING: cargo-audit download failed ({e}); install post-deploy: cargo install cargo-audit", file=sys.stderr)
-PYEOF
-
-# ---------------------------------------------------------------------------
-# Hook suite — deployed to /etc/skel/.claude/hooks/
-# Deploy to skel so it propagates to new user home directories
-# ---------------------------------------------------------------------------
-COPY hooks/ /etc/skel/.claude/hooks/
-COPY config/settings.json /etc/skel/.claude/settings.json
-COPY CLAUDE.md /etc/skel/.claude/CLAUDE.md
-COPY config/agents/ /etc/skel/.claude/agents/
-COPY config/rules/ /etc/skel/.claude/rules/
-
-# Make hooks executable
-RUN chmod +x /etc/skel/.claude/hooks/pre_tool_use/*.py \
-    && chmod +x /etc/skel/.claude/hooks/post_tool_use/*.py \
-    && chmod +x /etc/skel/.claude/hooks/user_prompt_submit/*.py
-
-# ---------------------------------------------------------------------------
-# firewalld baseline — restrict to homelab ranges
-# (runtime rules applied via Ansible configure.yml for flexibility)
-# ---------------------------------------------------------------------------
-# No firewall-cmd here; bootc image builds don't have a running firewalld.
-# Rules applied post-deploy by Ansible.
-
-# ---------------------------------------------------------------------------
-# SELinux
-# ---------------------------------------------------------------------------
-# SELinux policy customizations go here as policy modules are built.
-# Placeholder — extend as needed during development.
-# RUN semodule -i /path/to/custom.pp
+RUN mkdir -p /usr/local/lib/open-atomic /etc/skel/.config/opencode/sessions
+COPY scripts/grant-session /usr/local/bin/grant-session
+RUN chmod 0755 /usr/local/bin/grant-session
 
 # ---------------------------------------------------------------------------
 # Rootless Podman config skeleton
@@ -199,93 +60,35 @@ RUN mkdir -p /etc/skel/.config/containers
 COPY config/containers/ /etc/skel/.config/containers/
 
 # ---------------------------------------------------------------------------
-# OpenCode TUI configuration
+# Agent container Quadlet — starts the agent container on login/lingering.
+# The agent image is pulled at runtime and can be updated without a VM rebuild.
 # ---------------------------------------------------------------------------
-RUN mkdir -p /etc/skel/.config/opencode
-COPY config/opencode.jsonc /etc/skel/.config/opencode/opencode.jsonc
-COPY config/opencode-settings.json /etc/skel/.config/opencode/settings.json
-
-# ---------------------------------------------------------------------------
-# npm defaults — redirect personal globals to ~/.npm-global (no sudo needed)
-# audit=true, fund=false, prefer-exact=true match the devbox security posture
-# ---------------------------------------------------------------------------
-RUN printf 'prefix=~/.npm-global\naudit=true\nfund=false\nprefer-exact=true\n' \
-    > /etc/skel/.npmrc
+RUN mkdir -p /etc/skel/.config/containers/systemd
+COPY config/quadlets/opencode-agent.container /etc/skel/.config/containers/systemd/opencode-agent.container
 
 # ---------------------------------------------------------------------------
 # Shell integrations for /etc/skel/.bashrc
 # ---------------------------------------------------------------------------
 RUN cat >> /etc/skel/.bashrc << 'EOF'
 
-# --- fedora-claude-devbox shell integrations ---
+# --- open-atomic shell integrations ---
 
-# fnm (system node + Claude Code CLI)
-export FNM_DIR="/usr/local/share/fnm"
-export PATH="$FNM_DIR:$PATH"
-eval "$(fnm env --use-on-cd)"
+# Enter the agent container
+alias open-atomic='podman exec -it opencode-agent bash'
 
-# npm personal globals (prefix=~/.npm-global set in ~/.npmrc)
-export PATH="$HOME/.npm-global/bin:$PATH"
-
-# mise
-eval "$(mise activate bash)"
-
-# direnv
-eval "$(direnv hook bash)"
-
-# rustup/cargo (per-user toolchains in ~/.cargo)
-export PATH="$HOME/.cargo/bin:$PATH"
+# Session-grant helper
+alias grant='grant-session'
 
 # Podman aliases (Docker-compatible muscle memory)
 alias docker='podman'
 alias docker-compose='podman-compose'
-
-# Quadlet helpers
-alias qdreload='systemctl --user daemon-reload'
-alias qdstart='systemctl --user start'
-alias qdstop='systemctl --user stop'
-alias qdstatus='systemctl --user status'
-alias qdlogs='journalctl --user -u'
-
-# Git shortcuts
-alias gs='git status'
-alias gd='git diff'
-alias gds='git diff --staged'
-
-# Safety aliases
-alias rm='rm -i'
-EOF
-
-# ---------------------------------------------------------------------------
-# DEVBOX_INSTALLED.md placeholder in skel
-# ---------------------------------------------------------------------------
-RUN cat > /etc/skel/DEVBOX_INSTALLED.md << 'EOF'
-# DEVBOX_INSTALLED.md
-
-Tracks ad hoc installs made by Claude Code or manually.
-Update on every install outside the base bootc image.
-
-| Date | Tool | Version | Method | Project | Reason |
-|------|------|---------|--------|---------|--------|
-| (image) | git, podman, buildah, skopeo | system | dnf | base | Core tooling |
-| (image) | fnm | latest | curl installer | base | Node version manager |
-| (image) | uv | latest | curl installer | base | Python package manager |
-| (image) | rustup | latest | curl installer | base | Rust toolchain manager |
-| (image) | mise | latest | curl installer | base | Unified version manager |
-| (image) | claude | latest | npm global | base | Claude Code CLI |
-| (image) | bandit | latest | uv tool install | base | Python SAST — auto-runs via sast_scan hook on every .py edit |
-| (image) | pip-audit | latest | uv tool install | base | Python dependency CVE scanner — auto-runs via sast_scan hook |
-| (image) | cargo-audit | latest | binary download | base | Rust RustSec advisory scanner — auto-runs via sast_scan hook |
-| (image) | @socketsecurity/cli | latest | npm global | base | npm supply chain screening — prompted by enforce_permissions hook |
 EOF
 
 # ---------------------------------------------------------------------------
 # Primary user — configurable at build time, defaults to "devbox"
-# Override: podman build --build-arg DEVBOX_USER=yourname
-# SSH keys and personal config are applied post-deploy by Ansible.
+# NO sudo, NO wheel, NO podman groups — the user is unprivileged. System
+# changes happen at build time; remote elevation is via short-lived SSH certs.
 # Must run after all /etc/skel setup so useradd -m copies the full skel.
 # ---------------------------------------------------------------------------
 ARG DEVBOX_USER=devbox
-RUN useradd -m -G wheel,podman -s /bin/bash ${DEVBOX_USER} \
-    && echo "${DEVBOX_USER} ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/${DEVBOX_USER} \
-    && chmod 440 /etc/sudoers.d/${DEVBOX_USER}
+RUN useradd -m -s /bin/bash ${DEVBOX_USER}
