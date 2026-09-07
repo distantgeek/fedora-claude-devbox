@@ -170,24 +170,31 @@ curl -sk -X POST \
 ssh root@192.168.2.2 "qm guest cmd <VMID> network-get-interfaces"
 ```
 
-### 7. Bootstrap SSH access (first boot only)
+### 7. Initial auth (SSH key is baked in — no password anywhere)
 
-The image creates `DEVBOX_USER` with **no sudo** and no SSH key. Inject your key while
-the VM is stopped:
+There is **no default user/password**. Both `root` and the devbox user are
+created with **locked (no-password) accounts**. SSH key auth is the only way in,
+and the key is injected at **image build time**:
 
 ```bash
-ssh root@192.168.2.2 "qm stop <VMID>"
-
-ssh root@192.168.2.2 bash << 'EOF'
-LOOP=$(losetup -f --show -P /dev/zvol/<pool>/vm-<VMID>-disk-0 2>/dev/null)
-# ... mount p4, write authorized_keys to var/roothome/.ssh/, unmount
-EOF
-
-ssh root@192.168.2.2 "qm start <VMID>"
+# The Makefile reads ~/.ssh/id_ed25519.pub automatically:
+make build-image DEVBOX_USER=yourname
+# → passes --build-arg SSH_AUTHORIZED_KEYS="$(cat ~/.ssh/id_ed25519.pub)"
 ```
 
-> Future builds with `DEVBOX_USER=yourname` bake the user in with skel pre-populated.
-> The user has **no sudo** — system changes happen at build time, not on the running VM.
+The public key is written to the devbox user's `~/.ssh/authorized_keys`. After the
+VM boots:
+
+```bash
+ssh -i ~/.ssh/id_ed25519 yourname@<devbox-ip>     # first login
+```
+
+Use a different key: `make build-image DEVBOX_USER=yourname SSH_KEY=~/.ssh/other_key`
+(or set `SSH_PUBKEY` explicitly).
+
+> The devbox user has **no sudo**. SSH gives you the unprivileged shell only —
+> there is no root login and no `sudo` escalation on the box. System changes happen
+> at build time, not on the running VM (see "Ongoing Upgrade Workflow" below).
 
 ---
 

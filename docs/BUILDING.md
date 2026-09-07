@@ -43,8 +43,10 @@ make build-image                        # DEVBOX_USER=devbox (public default)
 make build-image DEVBOX_USER=kevbot     # personal
 ```
 
-SSH authorized keys are **not** baked in — injected post-deploy (see
-`docs/PROXMOX_SETUP.md`).
+SSH access is via **key only** — no passwords on any account. The operator's public
+key (`~/.ssh/id_ed25519.pub`, or `SSH_PUBKEY`) is baked into the user's
+`~/.ssh/authorized_keys` via the `SSH_AUTHORIZED_KEYS` build arg at build time.
+Override with `SSH_KEY=~/.ssh/other_key` (see `docs/PROXMOX_SETUP.md`).
 
 ## Pushing to GHCR
 
@@ -73,18 +75,18 @@ it the build fails with a `DefaultRootFs` error.
 | Layer | Contents | Rebuild trigger |
 |-------|----------|-----------------|
 | 1 | `FROM fedora-bootc:44` | Base image update |
-| 2 | dnf packages | Package list change |
-| 3 | systemd enables | Service list change |
+| 2 | dnf packages (podman, firewalld, qemu-guest-agent, …) | Package list change |
+| 3 | systemd enables (qemu-guest-agent, firewalld) | Service list change |
 | 4 | bootc filesystem config | Never (static) |
-| 5 | fnm + Node LTS | fnm version change |
-| 6 | uv + uvx | uv version change |
-| 7 | rustup binary | rustup version change |
-| 8 | mise | mise version change |
-| 9 | OpenCode CLI | opencode version change |
-| 10 | SAST tools (bandit, pip-audit, socket, cargo-audit) | Tool version changes |
-| 11 | Framework → `/etc/opencode/` + `OPENCODE_CONFIG_DIR` | Any config change |
-| 12 | Rootless podman config, `.npmrc`, shell integrations | Infra config change |
-| 13 | DEVBOX_USER creation (no sudo) | DEVBOX_USER arg change |
+| 5 | grant-session + agent.env.example | Tool/example change |
+| 6 | Rootless podman config + agent Quadlet | Infra config change |
+| 7 | shell integrations | `.bashrc` change |
+| 8 | SSH authorized_keys (`SSH_AUTHORIZED_KEYS`) | Operator key change |
+| 9 | DEVBOX_USER creation (no sudo) | DEVBOX_USER arg change |
+
+The agent container (`build/agent/Containerfile`) holds the toolchains (fnm, uv,
+rustup, mise), OpenCode CLI, SAST tools, scrub-daddy-llm, and the framework — see
+its own layer order in `AGENTS.md`.
 
 ---
 

@@ -10,6 +10,7 @@ FULL_AGENT      ?= $(REGISTRY)/$(AGENT_IMAGE):$(TAG)
 VM_HOST         ?= $(error VM_HOST is required for this target)
 VM_USER         ?= devbox
 SSH_KEY         ?= ~/.ssh/id_ed25519
+SSH_PUBKEY      ?= $(shell cat $(SSH_KEY).pub 2>/dev/null)
 ANSIBLE_OPTS    ?=
 DEVBOX_USER     ?= devbox
 
@@ -41,6 +42,7 @@ help:
 	@echo "  VM_HOST         Target VM IP address"
 	@echo "  VM_USER         SSH user (default: devbox)"
 	@echo "  SSH_KEY         SSH private key (default: ~/.ssh/id_ed25519)"
+	@echo "  SSH_PUBKEY      Public key baked into the image as authorized_keys"
 	@echo "  TAG             Image tag (default: latest)"
 	@echo "  REGISTRY        Image registry (default: ghcr.io/distantgeek)"
 	@echo ""
@@ -55,6 +57,7 @@ build-image:
 		--tag $(FULL_IMAGE) \
 		--tag $(REGISTRY)/$(IMAGE_NAME):$$(git rev-parse --short HEAD) \
 		--build-arg DEVBOX_USER=$(DEVBOX_USER) \
+		--build-arg SSH_AUTHORIZED_KEYS="$(SSH_PUBKEY)" \
 		-f build/Containerfile \
 		.
 

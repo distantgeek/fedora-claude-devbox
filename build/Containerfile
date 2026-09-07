@@ -86,6 +86,20 @@ alias docker-compose='podman-compose'
 EOF
 
 # ---------------------------------------------------------------------------
+# Operator SSH public key — injected at build time via SSH_AUTHORIZED_KEYS.
+# Written to /etc/skel/.ssh/authorized_keys so useradd -m copies it into the
+# user's home. NO password is set on any account (root and the user are
+# locked) — SSH key auth is the ONLY way in.
+# ---------------------------------------------------------------------------
+ARG SSH_AUTHORIZED_KEYS=""
+RUN mkdir -p /etc/skel/.ssh \
+    && chmod 700 /etc/skel/.ssh \
+    && if [ -n "$SSH_AUTHORIZED_KEYS" ]; then \
+         printf '%s\n' "$SSH_AUTHORIZED_KEYS" > /etc/skel/.ssh/authorized_keys; \
+         chmod 600 /etc/skel/.ssh/authorized_keys; \
+       fi
+
+# ---------------------------------------------------------------------------
 # Primary user — configurable at build time, defaults to "devbox"
 # NO sudo, NO wheel, NO podman groups — the user is unprivileged. System
 # changes happen at build time; remote elevation is via short-lived SSH certs.
