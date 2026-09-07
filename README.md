@@ -92,7 +92,8 @@ open-atomic/
 │   ├── PROXMOX_SETUP.md       # VM hardware spec and bootc import workflow
 │   ├── BUILDING.md            # Build notes, layer design, bootc quirks
 │   ├── SECURITY.md            # Plugin architecture and security model
-│   └── REMOTE_MANAGEMENT.md   # Session-scoped SSH cert access
+│   ├── REMOTE_MANAGEMENT.md   # Session-scoped SSH cert access
+│   └── CREDENTIALS.md         # Token/key injection + grant-session workflow
 ├── AGENTS.md                  # Full project context for OpenCode
 └── Makefile                   # All operations
 ```

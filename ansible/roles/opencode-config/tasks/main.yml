@@ -12,6 +12,22 @@
     group: "{{ target_user }}"
     mode: "0700"
 
+- name: Ensure OpenCode data dir exists (auth.json, db — persistent volume)
+  ansible.builtin.file:
+    path: "{{ target_user_home }}/.local/share/opencode"
+    state: directory
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0700"
+
+- name: Ensure credentials config dir exists (agent.env, targets.conf)
+  ansible.builtin.file:
+    path: "{{ target_user_home }}/.config/open-atomic"
+    state: directory
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0700"
+
 - name: Ensure agent container config dir exists
   ansible.builtin.file:
     path: "{{ target_user_home }}/.config/containers/systemd"

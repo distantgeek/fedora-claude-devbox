@@ -3,11 +3,18 @@ Image=ghcr.io/distantgeek/open-atomic-agent:latest
 ContainerName=opencode-agent
 HostName=open-atomic-agent
 
+# MCP / API keys (operator-managed env file; optional — '-' makes it non-fatal if absent)
+EnvironmentFile=-%h/.config/open-atomic/agent.env
+
 # Session certs (mounted read-write; the CA key is NOT mounted)
 Volume=%h/.config/opencode/sessions:/sessions:rw
 
 # Projects volume (persistent work dir)
 Volume=%h/repos:/repos:rw
+
+# OpenCode auth + data — persistent across container updates.
+# Holds ~/.local/share/opencode/auth.json (model provider keys), db, snapshots.
+Volume=%h/.local/share/opencode:/home/agent/.local/share/opencode:rw
 
 # Nested rootless podman inside the agent container
 Volume=/dev/fuse:/dev/fuse

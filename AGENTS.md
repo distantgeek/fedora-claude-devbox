@@ -234,6 +234,10 @@ target. See `docs/REMOTE_MANAGEMENT.md`.
 GitHub (fine-grained PAT), Proxmox (`opencode@pve!opencode0`) use scoped tokens.
 TrueNAS API keys are root-equivalent → use SSH certs instead.
 
+**Credential injection:** model keys (`opencode auth login` → `auth.json`) and
+MCP keys (`~/.config/open-atomic/agent.env`) are injected at runtime — nothing
+is baked into the images. See `docs/CREDENTIALS.md` for the full workflow.
+
 ---
 
 ## Security Model
