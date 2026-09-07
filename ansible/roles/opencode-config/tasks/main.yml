@@ -28,6 +28,16 @@
     group: "{{ target_user }}"
     mode: "0700"
 
+- name: Seed agent.env from example (if not present)
+  ansible.builtin.copy:
+    src: "{{ target_user_home }}/.config/open-atomic/agent.env.example"
+    dest: "{{ target_user_home }}/.config/open-atomic/agent.env"
+    remote_src: true
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0600"
+    force: false
+
 - name: Ensure agent container config dir exists
   ansible.builtin.file:
     path: "{{ target_user_home }}/.config/containers/systemd"

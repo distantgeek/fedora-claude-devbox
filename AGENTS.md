@@ -410,19 +410,28 @@ Always use `qm disk import <vmid> <file> <storage>`.
 
 ### Containerfile Layer Order
 
+**VM image** (`build/Containerfile` — thin shell, no toolchains):
+
 1. `quay.io/fedora/fedora-bootc:44`
-2. System packages (git, podman, buildah, skopeo, tmux, firewalld, python3, etc.)
-3. `qemu-guest-agent` + systemd enable
-4. bootc filesystem config
-5. `fnm` → Node LTS
-6. `uv`
-7. `rustup` (no default toolchain)
-8. `mise`
-9. OpenCode CLI (`npm global` via fnm)
-10. SAST tools: `bandit`, `pip-audit` (uv tool); `@socketsecurity/cli` (npm); `cargo-audit` (binary)
-11. Framework → `/etc/opencode/` + `OPENCODE_CONFIG_DIR` (managed, immutable)
-12. Rootless Podman config + `.npmrc` + shell integrations → `/etc/skel/`
-13. DEVBOX_USER creation — **no sudo, no wheel/podman groups**
+2. dnf packages: podman, buildah, skopeo, podman-compose, firewalld, qemu-guest-agent, git, curl, python3, openssh-server
+3. systemd enable: `qemu-guest-agent`, `firewalld` (NOT `podman.socket`)
+4. bootc filesystem config (`10-open-atomic.toml`)
+5. `grant-session` + `agent.env.example` → `/etc/skel/`
+6. Rootless podman config + agent Quadlet → `/etc/skel/`
+7. shell integrations → `/etc/skel/.bashrc`
+8. DEVBOX_USER creation — **no sudo, no wheel/podman groups**
+
+**Agent container** (`build/agent/Containerfile` — opencode + framework):
+
+1. `quay.io/fedora/fedora:44`
+2. dnf packages: toolchains (git, gh, gcc, etc.), podman (nested rootless), ansible-core
+3. `fnm` → Node LTS
+4. `uv`, `rustup`, `mise`
+5. OpenCode CLI (`npm global` via fnm)
+6. SAST tools: `bandit`, `pip-audit`, `@socketsecurity/cli`, `cargo-audit`
+7. `scrub-daddy-llm` (vendored)
+8. Framework → `/etc/opencode/` (managed) + `/opt/open-atomic/opencode/` (`OPENCODE_CONFIG_DIR`)
+9. non-root `agent` user (uid 1000)
 
 ---
 
@@ -462,13 +471,11 @@ Always use `qm disk import <vmid> <file> <storage>`.
 
 Items OpenCode should know about but **not start without explicit instruction:**
 
-1. **Agent container image** — build the `open-atomic-agent` image baking in the full
-   framework (plugins, agents, skills, instructions, commands, MCPs)
-2. **grant-session tool** — short-lived SSH CA cert minting + session dir wiring
-3. **Session-audit + review-gate plugins** — auto-invoke subagents at session start,
-   block commits/pushes without review
-4. **caveman/ponytail default instructions** — terse + YAGNI as always-on directives
-5. **SELinux policy module** — targeted allow rules for the devbox, baked into the image
-6. **R820 provisioning** — full VM creation pipeline on `garage-0` storage
+1. **review-gate plugin** — block `git push`/`git merge` unless a review subagent ran this session
+2. **SELinux policy module** — targeted allow rules for the devbox, baked into the image
+3. **R820 provisioning** — full VM creation pipeline on `garage-0` storage
+4. **Nested rootless podman verification** — confirm podman-in-podman works in the agent container
+
+Done: agent container image, grant-session, session-audit plugin, caveman/ponytail directives, credential injection.
 
 Do not begin any of the above unless the user asks.

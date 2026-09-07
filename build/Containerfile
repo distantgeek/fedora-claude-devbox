@@ -49,8 +49,9 @@ RUN mkdir -p /usr/lib/bootc/install && \
 # The CA private key lives in ~/.ssh/ca/ (host-only, never mounted into the
 # agent container).
 # ---------------------------------------------------------------------------
-RUN mkdir -p /usr/local/lib/open-atomic /etc/skel/.config/opencode/sessions
+RUN mkdir -p /usr/local/lib/open-atomic /etc/skel/.config/opencode/sessions /etc/skel/.config/open-atomic
 COPY scripts/grant-session /usr/local/bin/grant-session
+COPY config/quadlets/agent.env.example /etc/skel/.config/open-atomic/agent.env.example
 RUN chmod 0755 /usr/local/bin/grant-session
 
 # ---------------------------------------------------------------------------

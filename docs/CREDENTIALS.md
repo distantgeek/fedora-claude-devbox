@@ -55,17 +55,19 @@ systemctl --user restart opencode-agent
 
 ### 2. MCP / API keys (`agent.env`)
 
+`~/.config/open-atomic/agent.env` is injected into the container via the Quadlet's
+`EnvironmentFile=-%h/.config/open-atomic/agent.env` directive — systemd reads the
+file and passes each `KEY=VALUE` line as a container env var. The leading `-` makes
+the file optional: a fresh box boots cleanly with no secrets.
+
+`make deploy` seeds the file automatically (copies the baked-in
+`agent.env.example` → `agent.env`, chmod 600) on first deploy. To add keys:
+
 ```bash
-cp ~/.config/open-atomic/agent.env.example ~/.config/open-atomic/agent.env
+vi ~/.config/open-atomic/agent.env     # edit placeholders
 chmod 600 ~/.config/open-atomic/agent.env
-# edit it, then:
-systemctl --user daemon-reload
 systemctl --user restart opencode-agent
 ```
-
-The Quadlet loads it via `EnvironmentFile=-%h/.config/open-atomic/agent.env`.
-The leading `-` means a missing file is non-fatal (a fresh box has no secrets
-until you add them).
 
 > **Verify:** `podman exec opencode-agent env | grep -E 'GITHUB|CONTEXT7'`
 
