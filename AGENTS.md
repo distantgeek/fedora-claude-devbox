@@ -475,6 +475,9 @@ Items OpenCode should know about but **not start without explicit instruction:**
 2. **SELinux policy module** — targeted allow rules for the devbox, baked into the image
 3. **R820 provisioning** — full VM creation pipeline on `garage-0` storage
 4. **Nested rootless podman verification** — confirm podman-in-podman works in the agent container
+5. **Neutral base image + cloud-init personalization** — stop baking the operator key by
+   default; pass personal keys/settings via the Proxmox cloud-init drive so the base
+   image stays neutral
 
 Done: agent container image, grant-session, session-audit plugin, caveman/ponytail directives, credential injection.
 

@@ -203,6 +203,35 @@ Use a different key: `make build-image DEVBOX_USER=yourname SSH_KEY=~/.ssh/other
 > there is no root login and no `sudo` escalation on the box. System changes happen
 > at build time, not on the running VM (see "Ongoing Upgrade Workflow" below).
 
+### 8. cloud-init personalization (neutral base image)
+
+For a **neutral** base image — no personal keys baked in — skip the build-arg and
+inject your key + network config from the Proxmox side via the cloud-init drive at
+first boot. This is the intended long-term model: one neutral image, per-VM
+personalization.
+
+Build the image without a key:
+
+```bash
+make build-image DEVBOX_USER=devbox SSH_PUBKEY=""
+```
+
+Attach a cloud-init drive and inject your key/user/network before first boot:
+
+```bash
+qm set <VMID> --ide2 garage-0:cloudinit
+qm set <VMID> --ciuser devbox --sshkeys ~/.ssh/id_ed25519.pub
+qm set <VMID> --ipconfig0 ip=192.168.2.<x>/24,gw=192.168.2.1
+```
+
+At first boot, cloud-init applies the key and network config to the `devbox` user.
+`--ciuser` must match the baked `DEVBOX_USER` (default `devbox`) so cloud-init
+configures the existing user rather than creating a second one.
+
+> The two paths are independent: the `SSH_AUTHORIZED_KEYS` build arg bakes a key
+> into the image (rebuild to change), while the cloud-init drive injects it at boot
+> (no rebuild). Prefer cloud-init once the base image is shared/neutral.
+
 ---
 
 ## Ongoing Upgrade Workflow
