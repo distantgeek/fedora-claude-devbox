@@ -33,6 +33,14 @@ config/proxmox/
 # SSH CA key — never commit
 .ssh/ca/
 
+# SSH keys, certs, and authorized_keys — never commit (any .ssh dir in-repo)
+.ssh/
+authorized_keys
+*-cert.pub
+
+# Real credentials env file — only agent.env.example is committed
+agent.env
+
 # Ansible runtime artifacts
 ansible/deployment.log
 ansible/*.retry

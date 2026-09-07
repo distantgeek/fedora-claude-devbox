@@ -21,10 +21,19 @@ RUN dnf install -y \
     podman-compose \
     firewalld \
     qemu-guest-agent \
+    cloud-init \
     git \
     curl \
     python3 \
     openssh-server \
+    # guest diagnostics / management (qm guest exec, hardware introspection)
+    dmidecode \
+    lshw \
+    ethtool \
+    pciutils \
+    usbutils \
+    nfs-utils \
+    cifs-utils \
     && dnf clean all
 
 # ---------------------------------------------------------------------------
@@ -34,7 +43,8 @@ RUN dnf install -y \
 # under the devbox user without a socket.
 # ---------------------------------------------------------------------------
 RUN systemctl enable qemu-guest-agent \
-    && systemctl enable firewalld
+    && systemctl enable firewalld \
+    && systemctl enable cloud-init-local cloud-init-main cloud-init-network cloud-final
 
 # ---------------------------------------------------------------------------
 # bootc install configuration — explicitly declare root filesystem type.

@@ -51,6 +51,13 @@ Target host: **R820** (node `kevbotpve-0`, PVE 9.2.11, `192.168.2.2`).
 ### QEMU Guest Agent
 Enabled — already installed + enabled in the image.
 
+### Guest tools (advanced Proxmox/QEMU management)
+Baked into the image: `qemu-guest-agent` (graceful shutdown, IP reporting, guest exec,
+freeze/thaw, fstrim), `cloud-init` (Proxmox cloud-init drive for optional user/network
+config), and diagnostics (`dmidecode`, `lshw`, `ethtool`, `pciutils`, `usbutils`,
+`nfs-utils`, `cifs-utils`) for `qm guest exec` introspection. The primary auth remains
+the baked SSH key; cloud-init is optional.
+
 ### Display
 | Setting | Value | Reason |
 |---------|-------|--------|
