@@ -3,8 +3,13 @@ Image=ghcr.io/distantgeek/open-atomic-agent:latest
 ContainerName=opencode-agent
 HostName=open-atomic-agent
 
-# MCP / API keys (operator-managed env file; optional — '-' makes it non-fatal if absent)
-EnvironmentFile=-%h/.config/open-atomic/agent.env
+# MCP / API keys (operator-managed env file). NOTE: Quadlet does NOT support the
+# systemd '-' (optional) prefix on EnvironmentFile — the file must exist.
+EnvironmentFile=%h/.config/open-atomic/agent.env
+
+# Map the container's agent user (uid 1000) to the host user (kevbot) so volume
+# ownership matches. Without this, uid 1000 inside maps to an unrelated host uid.
+UserNS=keep-id
 
 # Session certs (mounted read-write; the CA key is NOT mounted)
 Volume=%h/.config/opencode/sessions:/sessions:rw
@@ -12,9 +17,12 @@ Volume=%h/.config/opencode/sessions:/sessions:rw
 # Projects volume (persistent work dir)
 Volume=%h/repos:/repos:rw
 
-# OpenCode auth + data — persistent across container updates.
-# Holds ~/.local/share/opencode/auth.json (model provider keys), db, snapshots.
-Volume=%h/.local/share/opencode:/home/agent/.local/share/opencode:rw
+# OpenCode auth + data + state — persistent across container updates.
+# Holds ~/.local/share/opencode/auth.json (model provider keys), db, snapshots,
+# and ~/.local/state. Mounted at /home/agent/.local so the container's XDG paths
+# resolve onto the host. SELinux: dirs must be relabeled to container_file_t:s0
+# (chcon -R -t container_file_t -l s0) — rootless podman cannot do :Z reliably.
+Volume=%h/.local:/home/agent/.local:rw
 
 # Nested rootless podman inside the agent container
 Volume=/dev/fuse:/dev/fuse

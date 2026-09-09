@@ -2,7 +2,12 @@
 # Post-deployment validation for open-atomic.
 # Verifies the devbox is correctly configured after make deploy.
 #
-# Usage: make validate VM_HOST=192.168.x.x
+# Usage: make validate VM_HOST=192.168.x.x VM_USER=root TARGET_USER=kevbot
+#
+# System-level checks run as root (become: true). User/container-level checks
+# run as the target user via `su -` (login shell → pam_systemd sets
+# XDG_RUNTIME_DIR, required for rootless podman). opencode and the toolchains
+# live in the agent container, so those checks use `podman exec`.
 
 - name: Validate open-atomic deployment
   hosts: all
@@ -11,6 +16,7 @@
   vars:
     target_user: "{{ ansible_user | default('devbox') }}"
     target_user_home: "/home/{{ target_user }}"
+    agent_container: opencode-agent
 
   tasks:
     # ── bootc ──────────────────────────────────────────────────────────────
@@ -24,86 +30,120 @@
       ansible.builtin.debug:
         msg: "{{ bootc_status.stdout_lines[:5] }}"
 
-    # ── Podman ────────────────────────────────────────────────────────────
+    # ── Podman (rootless, as target user) ─────────────────────────────────
     - name: Check Podman version
       ansible.builtin.command: podman --version
       register: podman_version
       changed_when: false
+      become: true
+      become_user: "{{ target_user }}"
+      become_method: su
+      become_flags: "-"
 
     - name: Verify rootless Podman SELinux status
       ansible.builtin.command: podman info --format '{{ "{{" }}.Host.Security.SELinuxEnabled{{ "}}" }}'
       register: podman_selinux
       changed_when: false
+      become: true
+      become_user: "{{ target_user }}"
+      become_method: su
+      become_flags: "-"
 
-    # ── OpenCode ──────────────────────────────────────────────────────────
+    # ── Agent container ───────────────────────────────────────────────────
+    - name: Check agent container is running
+      ansible.builtin.command: podman ps --filter name={{ agent_container }} --format '{{ "{{" }}.Status{{ "}}" }}'
+      register: agent_container_status
+      changed_when: false
+      become: true
+      become_user: "{{ target_user }}"
+      become_method: su
+      become_flags: "-"
+
+    - name: Assert agent container is running
+      ansible.builtin.assert:
+        that: agent_container_status.stdout | length > 0
+        fail_msg: "Agent container {{ agent_container }} is not running"
+        success_msg: "Agent container {{ agent_container }} is running."
+
+    # ── OpenCode (inside the container) ───────────────────────────────────
     - name: Check OpenCode version
-      ansible.builtin.shell: |
-        source ~/.bashrc && opencode --version
-      args:
-        executable: /bin/bash
+      ansible.builtin.command: podman exec {{ agent_container }} opencode --version
       register: opencode_version
       changed_when: false
-
-    # ── Framework (immutable layers) ──────────────────────────────────────
-    - name: Check managed config exists
-      ansible.builtin.stat:
-        path: /etc/opencode/opencode.json
-      register: managed_config
       become: true
+      become_user: "{{ target_user }}"
+      become_method: su
+      become_flags: "-"
+
+    # ── Framework (immutable layers, inside the container) ────────────────
+    - name: Check managed config exists (in container)
+      ansible.builtin.command: podman exec {{ agent_container }} test -f /etc/opencode/opencode.json
+      register: managed_config
+      changed_when: false
+      failed_when: false
+      become: true
+      become_user: "{{ target_user }}"
+      become_method: su
+      become_flags: "-"
 
     - name: Assert managed config is present
       ansible.builtin.assert:
-        that: managed_config.stat.exists
-        fail_msg: "Managed config missing at /etc/opencode/opencode.json"
+        that: managed_config.rc == 0
+        fail_msg: "Managed config missing at /etc/opencode/opencode.json (in container)"
         success_msg: "Managed config present."
 
-    - name: Check framework dir exists
-      ansible.builtin.stat:
-        path: /opt/open-atomic/opencode
+    - name: Check framework dir exists (in container)
+      ansible.builtin.command: podman exec {{ agent_container }} test -d /opt/open-atomic/opencode
       register: framework_dir
+      changed_when: false
+      failed_when: false
       become: true
+      become_user: "{{ target_user }}"
+      become_method: su
+      become_flags: "-"
 
     - name: Assert framework dir is present
       ansible.builtin.assert:
-        that: framework_dir.stat.exists
-        fail_msg: "Framework dir missing at /opt/open-atomic/opencode"
+        that: framework_dir.rc == 0
+        fail_msg: "Framework dir missing at /opt/open-atomic/opencode (in container)"
         success_msg: "Framework dir present."
 
-    # ── Node / fnm ────────────────────────────────────────────────────────
+    # ── Toolchains (inside the container) ─────────────────────────────────
     - name: Check Node.js version
-      ansible.builtin.shell: |
-        export FNM_DIR=/usr/local/share/fnm
-        export PATH="$FNM_DIR:$PATH"
-        eval "$(fnm env)"
-        node --version
-      args:
-        executable: /bin/bash
+      ansible.builtin.command: podman exec {{ agent_container }} node --version
       register: node_version
       changed_when: false
+      become: true
+      become_user: "{{ target_user }}"
+      become_method: su
+      become_flags: "-"
 
-    # ── uv ────────────────────────────────────────────────────────────────
     - name: Check uv version
-      ansible.builtin.command: uv --version
+      ansible.builtin.command: podman exec {{ agent_container }} uv --version
       register: uv_version
       changed_when: false
-      environment:
-        PATH: "{{ target_user_home }}/.cargo/bin:{{ ansible_env.PATH }}"
+      become: true
+      become_user: "{{ target_user }}"
+      become_method: su
+      become_flags: "-"
 
-    # ── rustup ────────────────────────────────────────────────────────────
     - name: Check rustup
-      ansible.builtin.command: rustup --version
+      ansible.builtin.command: podman exec {{ agent_container }} rustup --version
       register: rustup_version
       changed_when: false
-      environment:
-        PATH: "{{ target_user_home }}/.cargo/bin:{{ ansible_env.PATH }}"
+      become: true
+      become_user: "{{ target_user }}"
+      become_method: su
+      become_flags: "-"
 
-    # ── mise ──────────────────────────────────────────────────────────────
     - name: Check mise version
-      ansible.builtin.command: mise --version
+      ansible.builtin.command: podman exec {{ agent_container }} mise --version
       register: mise_version
       changed_when: false
-      environment:
-        PATH: "{{ target_user_home }}/.local/bin:{{ ansible_env.PATH }}"
+      become: true
+      become_user: "{{ target_user }}"
+      become_method: su
+      become_flags: "-"
 
     # ── SELinux ───────────────────────────────────────────────────────────
     - name: Check SELinux status
@@ -137,18 +177,16 @@
       register: sudo_check
       changed_when: false
       failed_when: false
+      become: true
+      become_user: "{{ target_user }}"
+      become_method: su
+      become_flags: "-"
 
     - name: Verify sudo is unavailable
       ansible.builtin.assert:
         that: sudo_check.rc != 0
         fail_msg: "devbox user has sudo access — security regression"
         success_msg: "devbox user has no sudo (correct)."
-
-    # ── Agent container ───────────────────────────────────────────────────
-    - name: Check agent container is running
-      ansible.builtin.command: podman ps --filter name=opencode-agent --format '{{ "{{" }}.Status{{ "}}" }}'
-      register: agent_container
-      changed_when: false
 
     # ── DEVBOX_INSTALLED.md ───────────────────────────────────────────────
     - name: Check DEVBOX_INSTALLED.md exists
@@ -166,9 +204,9 @@
           SELinux       : {{ selinux_status.stdout }}
           firewalld     : {{ firewalld_status.status.ActiveState }}
           OpenCode      : {{ opencode_version.stdout | default('not found') }}
-          Managed cfg   : {{ 'present' if managed_config.stat.exists else 'MISSING' }}
-          Framework dir : {{ 'present' if framework_dir.stat.exists else 'MISSING' }}
-          Agent container: {{ agent_container.stdout | default('not running') }}
+          Managed cfg   : {{ 'present' if managed_config.rc == 0 else 'MISSING' }}
+          Framework dir : {{ 'present' if framework_dir.rc == 0 else 'MISSING' }}
+          Agent container: {{ agent_container_status.stdout | default('not running') }}
           Node.js       : {{ node_version.stdout | default('not found') }}
           uv            : {{ uv_version.stdout | default('not found') }}
           rustup        : {{ rustup_version.stdout | default('not found') }}

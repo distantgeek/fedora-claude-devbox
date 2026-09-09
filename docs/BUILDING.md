@@ -105,6 +105,14 @@ or `ENOTDIR`.
 | mise | Direct binary from GitHub releases API → `/usr/local/bin/mise` |
 | npm (opencode) | `HOME=/tmp` prefix on the npm install command |
 
+## Agent Container Home (`/home/agent`)
+
+The agent Containerfile pre-creates `/home/agent/.local` (agent-owned) so podman
+does **not** create the volume mount-point parents as root. If the parents are
+root-owned, the non-root agent user gets `EACCES` creating siblings like
+`~/.local/state`. Keep this in the Containerfile whenever the agent home layout
+changes.
+
 ---
 
 ## ostree Filesystem Layout

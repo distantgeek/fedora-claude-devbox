@@ -32,6 +32,19 @@
     - role: opencode-config
 
   post_tasks:
+    - name: Relabel agent volume dirs for SELinux (container_file_t:s0)
+      ansible.builtin.command: chcon -R -t container_file_t -l s0 {{ item }}
+      become: true
+      changed_when: false
+      loop:
+        - "{{ target_user_home }}/.local"
+        - "{{ target_user_home }}/.config/opencode/sessions"
+        - "{{ target_user_home }}/repos"
+      # Rootless podman cannot reliably re-relabel with :Z (MCS category
+      # mismatch). chcon to container_file_t:s0 (no categories) + plain :rw
+      # mounts in the Quadlet is the deterministic fix.
+      when: ansible_user == 'root'
+
     - name: Deployment complete
       ansible.builtin.debug:
         msg: |

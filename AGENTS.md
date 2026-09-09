@@ -70,14 +70,14 @@ update the container on the VM. The VM bootc image only rebuilds for VM-level ch
 
 | Property | Value |
 |----------|-------|
-| VMID | _unassigned_ (provision on R820; avoid 100 = pve-sentinel) |
+| VMID | 200 |
 | Hostname | `open-atomic` |
-| IP | _reserve on `192.168.2.0/24`_ |
+| IP | `192.168.2.150/24` (gw `192.168.2.1`) |
 | Proxmox host | `kevbotpve-0` at `192.168.2.2` |
 | VM disk storage | `garage-0` (ZFS pool `Garage0`, raidz2) |
 | Bridge | `vmbr0` |
 | bootc image | `ghcr.io/distantgeek/open-atomic:latest` |
-| Status | Not yet deployed — pending build |
+| Status | Deployed — agent container running |
 
 ### R820 Host (kevbotpve-0)
 
@@ -349,6 +349,12 @@ Volume mount labels:
 - `:Z` — private relabel (default — single container)
 - `:z` — shared relabel (multiple containers accessing same volume)
 
+**Rootless caveat:** rootless podman cannot reliably re-relabel volumes with `:Z`
+(MCS category mismatch — each container run gets a fresh category while volumes keep
+stale ones, so the container can't access them). The deterministic approach for the
+agent Quadlet: `chcon -R -t container_file_t -l s0` on the volume dirs (root task,
+done post-deploy via Ansible) + plain `:rw` mounts. See `config/quadlets/opencode-agent.container`.
+
 ### Package Management
 
 - `dnf` only — never apt, snap, or brew
@@ -478,7 +484,13 @@ Items OpenCode should know about but **not start without explicit instruction:**
 5. **Neutral base image + cloud-init personalization** — stop baking the operator key by
    default; pass personal keys/settings via the Proxmox cloud-init drive so the base
    image stays neutral
+6. **Rebase-based deployment (next major iteration)** — replace the BIB disk-image cycle
+   with `bootc switch` onto a Fedora bootc base (qcow2 or minimal ISO). The VM pulls the
+   image from GHCR; updates become `bootc upgrade` (no disk rebuild/transfer/import).
+   Prereqs: read-only GHCR PAT in `/etc/containers/auth.json` on the VM (private image);
+   move skel-baked files (agent Quadlet, agent.env, bashrc integrations) to ansible-managed
+   so rebases pick up changes for existing users. Keep BIB for golden/distributable artifacts.
 
-Done: agent container image, grant-session, session-audit plugin, caveman/ponytail directives, credential injection.
+Done: agent container image, grant-session, session-audit plugin, caveman/ponytail directives, credential injection, rootless agent container startup (keep-id + SELinux chcon).
 
 Do not begin any of the above unless the user asks.

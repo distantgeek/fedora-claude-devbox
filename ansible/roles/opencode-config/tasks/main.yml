@@ -46,9 +46,14 @@
     group: "{{ target_user }}"
     mode: "0755"
 
+# User-state steps below (podman pull, systemctl --user) must run AS the target
+# user, not as root. When deploying as root (VM_USER=root TARGET_USER=kevbot),
+# they are skipped and performed manually — see docs/CREDENTIALS.md.
+
 - name: Pull agent container image
   ansible.builtin.command: podman pull {{ agent_image }}
   changed_when: false
+  when: ansible_user == target_user
 
 - name: Reload user systemd units
   ansible.builtin.systemd:
@@ -56,6 +61,15 @@
     state: started
     enabled: true
     scope: user
+  when: ansible_user == target_user
+
+- name: Note user-state steps for root deploys
+  ansible.builtin.debug:
+    msg: |
+      Running as root — user-state steps skipped. Run as {{ target_user }} (or manually):
+        podman pull {{ agent_image }}
+        systemctl --user enable --now opencode-agent.service
+  when: ansible_user != target_user
 
 - name: Wire Proxmox token sourcing in .bashrc (if not already present)
   ansible.builtin.blockinfile:

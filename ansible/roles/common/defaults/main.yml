@@ -6,8 +6,3 @@ target_user_home: "/home/{{ target_user }}"
 firewall_trusted_sources:
   - "192.168.0.0/16"
   - "10.0.0.0/8"
-
-# Services to ensure are running
-required_services:
-  - firewalld
-  - podman.socket

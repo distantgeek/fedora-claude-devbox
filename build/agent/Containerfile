@@ -161,8 +161,13 @@ ENV OPENCODE_CONFIG_DIR=/opt/open-atomic/opencode
 # Non-root agent user. The framework above is root-owned — the agent cannot
 # modify its own guardrails. The agent's home (/home/agent) is writable for
 # user prefs, caches, and session certs (/sessions is a mounted volume).
+# /home/agent/.local is pre-created agent-owned so podman does NOT create the
+# volume mount-point parents as root (which would block the agent from writing
+# siblings like ~/.local/state).
 # ---------------------------------------------------------------------------
-RUN useradd -m -u 1000 -s /bin/bash agent
+RUN useradd -m -u 1000 -s /bin/bash agent \
+    && mkdir -p /home/agent/.local/share/opencode \
+    && chown -R agent:agent /home/agent/.local
 USER agent
 WORKDIR /repos
 

@@ -9,9 +9,13 @@ FULL_IMAGE      ?= $(REGISTRY)/$(IMAGE_NAME):$(TAG)
 FULL_AGENT      ?= $(REGISTRY)/$(AGENT_IMAGE):$(TAG)
 VM_HOST         ?= $(error VM_HOST is required for this target)
 VM_USER         ?= devbox
+# Target user on the VM whose home is configured (differs from VM_USER when
+# deploying as root: make deploy VM_USER=root TARGET_USER=kevbot)
+TARGET_USER     ?= $(VM_USER)
 SSH_KEY         ?= ~/.ssh/id_ed25519
 SSH_PUBKEY      ?= $(shell cat $(SSH_KEY).pub 2>/dev/null)
 ANSIBLE_OPTS    ?=
+ANSIBLE_CONFIG  ?= $(CURDIR)/ansible/ansible.cfg
 DEVBOX_USER     ?= devbox
 
 # Kubernetes optional gate
@@ -40,7 +44,8 @@ help:
 	@echo ""
 	@echo "Options:"
 	@echo "  VM_HOST         Target VM IP address"
-	@echo "  VM_USER         SSH user (default: devbox)"
+	@echo "  VM_USER         SSH user (default: devbox; use root for root-level tasks)"
+	@echo "  TARGET_USER     User whose home is configured (default: VM_USER)"
 	@echo "  SSH_KEY         SSH private key (default: ~/.ssh/id_ed25519)"
 	@echo "  SSH_PUBKEY      Public key baked into the image as authorized_keys"
 	@echo "  TAG             Image tag (default: latest)"
@@ -84,12 +89,12 @@ push-images: push-image
 # ---------------------------------------------------------------------------
 
 deploy:
-	@echo ">>> Configuring $(VM_USER)@$(VM_HOST)"
-	ansible-playbook ansible/playbooks/configure.yml \
+	@echo ">>> Configuring $(VM_USER)@$(VM_HOST) (target user: $(TARGET_USER))"
+	ANSIBLE_CONFIG=$(ANSIBLE_CONFIG) ansible-playbook ansible/playbooks/configure.yml \
 		-i $(VM_HOST), \
 		-u $(VM_USER) \
 		--private-key $(SSH_KEY) \
-		-e "vm_host=$(VM_HOST) vm_user=$(VM_USER)" \
+		-e "vm_host=$(VM_HOST) vm_user=$(VM_USER) target_user=$(TARGET_USER)" \
 		$(ANSIBLE_OPTS)
 
 # bootc upgrade/rollback require root — the devbox user has NO sudo by design.
@@ -111,11 +116,11 @@ rollback:
 
 enable-kubernetes:
 	@echo ">>> Installing Kubernetes ($(K8S_BACKEND)) on $(VM_HOST)"
-	ansible-playbook ansible/playbooks/kubernetes.yml \
+	ANSIBLE_CONFIG=$(ANSIBLE_CONFIG) ansible-playbook ansible/playbooks/kubernetes.yml \
 		-i $(VM_HOST), \
 		-u $(VM_USER) \
 		--private-key $(SSH_KEY) \
-		-e "vm_host=$(VM_HOST) vm_user=$(VM_USER) k8s_backend=$(K8S_BACKEND)" \
+		-e "vm_host=$(VM_HOST) vm_user=$(VM_USER) target_user=$(TARGET_USER) k8s_backend=$(K8S_BACKEND)" \
 		$(ANSIBLE_OPTS)
 
 # ---------------------------------------------------------------------------
@@ -129,15 +134,16 @@ test-connection:
 
 validate:
 	@echo ">>> Validating deployment on $(VM_HOST)"
-	ansible-playbook ansible/playbooks/validate.yml \
+	ANSIBLE_CONFIG=$(ANSIBLE_CONFIG) ansible-playbook ansible/playbooks/validate.yml \
 		-i $(VM_HOST), \
 		-u $(VM_USER) \
 		--private-key $(SSH_KEY) \
+		-e "vm_host=$(VM_HOST) vm_user=$(VM_USER) target_user=$(TARGET_USER)" \
 		$(ANSIBLE_OPTS)
 
 clean:
 	@echo ">>> Cleaning build artifacts"
-	rm -f output/disk.raw
+	rm -rf output
 	podman rmi $(FULL_IMAGE) 2>/dev/null || true
 	podman rmi $(FULL_AGENT) 2>/dev/null || true
 	@echo ">>> Done."
@@ -146,20 +152,26 @@ clean:
 # bootc-image-builder — convert to raw disk for Proxmox import
 # ---------------------------------------------------------------------------
 
+# Under `sudo make`, id -u is 0 but the ghcr credentials live in the invoking
+# user's runtime dir. Resolve the real user's authfile so the pull works.
+AUTHFILE ?= $(shell if [ -n "$$SUDO_USER" ]; then echo "/run/user/$$(id -u $$SUDO_USER)/containers/auth.json"; else echo "/run/user/$$(id -u)/containers/auth.json"; fi)
+
 build-disk-image:
 	@echo ">>> Pulling $(FULL_IMAGE) into root storage for bootc-image-builder"
-	sudo podman pull --authfile /run/user/$(shell id -u)/containers/auth.json $(FULL_IMAGE)
+	sudo podman pull --authfile $(AUTHFILE) $(FULL_IMAGE)
 	@echo ">>> Converting $(FULL_IMAGE) to raw disk image for Proxmox"
 	mkdir -p output
+	@if [ -n "$$SUDO_USER" ]; then chown $$SUDO_USER:$$SUDO_USER output; fi
 	sudo podman run --rm -i \
 		--privileged \
 		--pull=newer \
-		-v $(PWD)/output:/output \
+		-v $(CURDIR)/output:/output \
 		-v /var/lib/containers/storage:/var/lib/containers/storage \
 		quay.io/centos-bootc/bootc-image-builder:latest \
 		--type raw \
 		--local \
 		$(FULL_IMAGE)
+	@if [ -n "$$SUDO_USER" ]; then sudo chown -R $$SUDO_USER:$$SUDO_USER output; fi
 	@echo ">>> Raw disk image at output/image/disk.raw"
 	@echo ">>> Import to Proxmox (PVE 9):"
 	@echo "    scp output/image/disk.raw root@<proxmox>:/tmp/"

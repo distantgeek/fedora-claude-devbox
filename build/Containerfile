@@ -41,10 +41,22 @@ RUN dnf install -y \
 # NOTE: podman.socket (root) is deliberately NOT enabled — the agent container
 # must never see the VM's podman socket (escape vector). Rootless podman runs
 # under the devbox user without a socket.
+# bootc-fetch-apply-updates.timer is disabled: the image is private and
+# /etc/containers/auth.json (read-only GHCR PAT) is not baked in, so the timer
+# would fail every run. Re-enable once auth.json is provisioned (see docs).
 # ---------------------------------------------------------------------------
 RUN systemctl enable qemu-guest-agent \
     && systemctl enable firewalld \
-    && systemctl enable cloud-init-local cloud-init-main cloud-init-network cloud-final
+    && systemctl enable cloud-init-local cloud-init-main cloud-init-network cloud-final \
+    && systemctl disable bootc-fetch-apply-updates.timer
+
+# ---------------------------------------------------------------------------
+# cloud-init on bootc: the root is immutable (composefs/ostree), so dnf package
+# operations at cloud-init time are invalid. Disable them. NOTE: datasource
+# user-data overrides this drop-in — also set `--ciupgrade 0` on Proxmox.
+# ---------------------------------------------------------------------------
+RUN printf 'package_update: false\npackage_upgrade: false\n' \
+    > /etc/cloud/cloud.cfg.d/99-bootc-no-package-upgrade.cfg
 
 # ---------------------------------------------------------------------------
 # bootc install configuration — explicitly declare root filesystem type.

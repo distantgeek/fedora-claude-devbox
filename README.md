@@ -133,9 +133,19 @@ Full hardware configuration and VM settings: see `docs/PROXMOX_SETUP.md`.
 
 ### 5. Configure and validate
 
+Deployment is two-phase: root-level tasks (firewalld drop zone, SELinux relabel,
+dirs, agent.env seed) run as root; user-state tasks (podman pull, agent service)
+run as the target user.
+
 ```bash
-make deploy VM_HOST=192.168.x.x
-make validate VM_HOST=192.168.x.x
+# Root-level config
+make deploy VM_HOST=192.168.2.150 VM_USER=root TARGET_USER=kevbot
+
+# User-state steps (on the VM, as kevbot):
+#   podman pull ghcr.io/distantgeek/open-atomic-agent:latest
+#   systemctl --user enable --now opencode-agent.service
+
+make validate VM_HOST=192.168.2.150 VM_USER=root TARGET_USER=kevbot
 ```
 
 ---

@@ -199,9 +199,10 @@ ssh -i ~/.ssh/id_ed25519 yourname@<devbox-ip>     # first login
 Use a different key: `make build-image DEVBOX_USER=yourname SSH_KEY=~/.ssh/other_key`
 (or set `SSH_PUBKEY` explicitly).
 
-> The devbox user has **no sudo**. SSH gives you the unprivileged shell only —
-> there is no root login and no `sudo` escalation on the box. System changes happen
-> at build time, not on the running VM (see "Ongoing Upgrade Workflow" below).
+> The devbox user has **no sudo** — SSH gives you the unprivileged shell only.
+> Root access is via SSH key as `root@<devbox-ip>` (operator maintenance path:
+> deploy, bootc upgrade/rollback, SELinux relabel). System changes happen at build
+> time or via root SSH, never via sudo on the box.
 
 ### 8. cloud-init personalization (neutral base image)
 
@@ -222,15 +223,39 @@ Attach a cloud-init drive and inject your key/user/network before first boot:
 qm set <VMID> --ide2 garage-0:cloudinit
 qm set <VMID> --ciuser devbox --sshkeys ~/.ssh/id_ed25519.pub
 qm set <VMID> --ipconfig0 ip=192.168.2.<x>/24,gw=192.168.2.1
+qm set <VMID> --ciupgrade 0
 ```
 
 At first boot, cloud-init applies the key and network config to the `devbox` user.
 `--ciuser` must match the baked `DEVBOX_USER` (default `devbox`) so cloud-init
 configures the existing user rather than creating a second one.
 
+> **`--ciupgrade 0` is required on bootc.** Proxmox's default user-data sets
+> `package_upgrade: true`, which makes cloud-init run `dnf upgrade` — invalid on
+> the immutable bootc/composefs root (the `cloud-init-main`/`cloud-final` units
+> fail). The image ships a `/etc/cloud/cloud.cfg.d` drop-in disabling package
+> ops, but datasource user-data overrides it, so the Proxmox flag is the real fix.
+
 > The two paths are independent: the `SSH_AUTHORIZED_KEYS` build arg bakes a key
 > into the image (rebuild to change), while the cloud-init drive injects it at boot
 > (no rebuild). Prefer cloud-init once the base image is shared/neutral.
+
+### Deployed reference (VM 200)
+
+The current devbox was provisioned with the neutral image + cloud-init:
+
+```bash
+qm set 200 --ide2 garage-0:cloudinit
+qm set 200 --ciuser root --sshkeys ~/.ssh/id_ed25519.pub
+qm set 200 --ipconfig0 ip=192.168.2.150/24,gw=192.168.2.1
+qm set 200 --nameserver 192.168.2.1
+qm set 200 --ciupgrade 0
+```
+
+- `ciuser root` — root SSH key auth is the operator path (no password; key only)
+- IP `192.168.2.150/24` (gw `.1`) — `.200` was found already in use on the LAN
+- net0 virtio MAC `BC:24:11:F0:1D:52` on vmbr0
+- scsi0 `garage-0:vm-200-disk-2` 60G, efidisk0 `vm-200-disk-1`, serial0 socket, vga serial0
 
 ---
 
@@ -249,6 +274,19 @@ make push-images
 ```
 
 `make rollback VM_HOST=<devbox-ip>` reverts a failed `bootc upgrade`.
+
+> **Auto-update timer:** `bootc-fetch-apply-updates.timer` is disabled by default —
+> the image is private and `/etc/containers/auth.json` (read-only GHCR PAT) is not
+> baked in, so the timer would fail every run. To enable auto-updates, provision
+> the PAT on the VM and re-enable the timer:
+>
+> ```bash
+> # on the VM, as root:
+> podman login ghcr.io --authfile /etc/containers/auth.json   # read-only PAT
+> systemctl enable --now bootc-fetch-apply-updates.timer
+> ```
+>
+> Until then, updates are manual via `make upgrade`.
 
 ## VM Snapshot Strategy
 
